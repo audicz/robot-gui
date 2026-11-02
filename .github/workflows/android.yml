@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'MAROS-MOBILE-COCKPIT-V1.zip.b64'
+      - 'MAROS-MOBILE-COCKPIT-V1.tar.gz.b64'
       - '.github/workflows/android.yml'
   workflow_dispatch:
 
@@ -32,9 +32,9 @@ jobs:
 
       - name: Decode Android Studio project
         run: |
-          base64 --decode MAROS-MOBILE-COCKPIT-V1.zip.b64 > project.zip
-          unzip -t project.zip
-          unzip -q project.zip
+          base64 --decode MAROS-MOBILE-COCKPIT-V1.tar.gz.b64 > project.tar.gz
+          tar -tzf project.tar.gz
+          tar -xzf project.tar.gz
           test -f MAROS-MOBILE-COCKPIT/settings.gradle
           test -f MAROS-MOBILE-COCKPIT/app/src/main/AndroidManifest.xml
 
