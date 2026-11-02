@@ -1,0 +1,55 @@
+name: Android APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'MAROS-MOBILE-COCKPIT-V1.zip.b64'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 35
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Decode Android Studio project
+        run: |
+          base64 --decode MAROS-MOBILE-COCKPIT-V1.zip.b64 > project.zip
+          unzip -t project.zip
+          unzip -q project.zip
+          test -f MAROS-MOBILE-COCKPIT/settings.gradle
+          test -f MAROS-MOBILE-COCKPIT/app/src/main/AndroidManifest.xml
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Build debug APK
+        run: gradle -p MAROS-MOBILE-COCKPIT assembleDebug --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MAROS-MOBILE-COCKPIT-debug-apk
+          path: MAROS-MOBILE-COCKPIT/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
