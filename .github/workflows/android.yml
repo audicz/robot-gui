@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'MAROS-MOBILE-COCKPIT-V1.tar.gz.b64'
+      - 'MAROS-MOBILE-COCKPIT-V1.zip.b64'
       - '.github/workflows/android.yml'
   workflow_dispatch:
 
@@ -33,13 +33,14 @@ jobs:
           yes | "$SDKMANAGER" --licenses
           "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
 
-      - name: Decode Android Studio project
+      - name: Decode Android Studio project ZIP
         run: |
-          base64 --decode MAROS-MOBILE-COCKPIT-V1.tar.gz.b64 > project.tar.gz
-          tar -tzf project.tar.gz
-          tar -xzf project.tar.gz
+          base64 --decode MAROS-MOBILE-COCKPIT-V1.zip.b64 > project.zip
+          unzip -t project.zip
+          unzip -q project.zip
           test -f MAROS-MOBILE-COCKPIT/settings.gradle
           test -f MAROS-MOBILE-COCKPIT/app/src/main/AndroidManifest.xml
+          test -f MAROS-MOBILE-COCKPIT/app/src/main/java/cz/maros/mobile/MainActivity.java
 
       - name: Set up Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
