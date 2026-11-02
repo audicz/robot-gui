@@ -1,10 +1,10 @@
-name: Android APK
+name: Android APK V2.8
 
 on:
   push:
     branches: [main]
     paths:
-      - 'MAROS-MOBILE-COCKPIT-V1.zip.b64'
+      - 'MAROS-MOBILE-COCKPIT-V2.8-ANDROID-SOURCE.zip'
       - '.github/workflows/android.yml'
   workflow_dispatch:
 
@@ -33,27 +33,30 @@ jobs:
           yes | "$SDKMANAGER" --licenses
           "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
 
-      - name: Decode Android Studio project ZIP
+      - name: Validate and unpack V2.8 source
         run: |
-          base64 --decode MAROS-MOBILE-COCKPIT-V1.zip.b64 > project.zip
-          unzip -t project.zip
-          unzip -q project.zip
-          test -f MAROS-MOBILE-COCKPIT/settings.gradle
-          test -f MAROS-MOBILE-COCKPIT/app/src/main/AndroidManifest.xml
-          test -f MAROS-MOBILE-COCKPIT/app/src/main/java/cz/maros/mobile/MainActivity.java
+          unzip -t MAROS-MOBILE-COCKPIT-V2.8-ANDROID-SOURCE.zip
+          unzip -q MAROS-MOBILE-COCKPIT-V2.8-ANDROID-SOURCE.zip
+          PROJECT="MAROS-MOBILE-COCKPIT-V2.8"
+          test -f "$PROJECT/settings.gradle"
+          test -f "$PROJECT/app/src/main/AndroidManifest.xml"
+          test -f "$PROJECT/app/src/main/java/cz/maros/mobile/MainActivity.java"
 
       - name: Set up Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
 
+      - name: Run protocol self-tests
+        run: sh MAROS-MOBILE-COCKPIT-V2.8/tools/run_protocol_tests.sh
+
       - name: Build debug APK
-        run: gradle -p MAROS-MOBILE-COCKPIT assembleDebug --stacktrace
+        run: gradle -p MAROS-MOBILE-COCKPIT-V2.8 assembleDebug --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: MAROS-MOBILE-COCKPIT-debug-apk
-          path: MAROS-MOBILE-COCKPIT/app/build/outputs/apk/debug/app-debug.apk
+          name: MAROS-MOBILE-COCKPIT-V2.8-debug-apk
+          path: MAROS-MOBILE-COCKPIT-V2.8/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
