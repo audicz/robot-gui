@@ -192,8 +192,8 @@ final class LidarSlamEngine {
         float x1=a.x1,y1=a.y1,x2=a.x2,y2=a.y2,x3=b.x1,y3=b.y1,x4=b.x2,y4=b.y2;
         float den=(x1-x2)*(y3-y4)-(y1-y2)*(x3-x4);
         if(Math.abs(den)<1e-5) return null;
-        float d1=x1*y2-y1*x2,d2=x3*y4-y3*x4;
-        return new PointF((d1*(x3-x4)-(x1-x2)*d2)/den,(d1*(y3-y4)-(y1-y2)*d3)/den);
+        float d1=d3(x1,y1,x2,y2),d2=d3(x3,y3,x4,y4);
+        return new PointF((d1*(x3-x4)-(x1-x2)*d2)/den,(d1*(y3-y4)-(y1-y2)*d2)/den);
     }
     private float d3(float x1,float y1,float x2,float y2){return x1*y2-y1*x2;}
     private static float wrap(float a){while(a>(float)Math.PI)a-=2*(float)Math.PI;while(a<-(float)Math.PI)a+=2*(float)Math.PI;return a;}
