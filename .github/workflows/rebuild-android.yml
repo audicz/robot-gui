@@ -36,6 +36,9 @@ jobs:
           echo "PROJECT_ROOT=$ROOT" >> "$GITHUB_ENV"
           echo "Gradle project root: $ROOT"
 
+      - name: Apply LiDAR SLAM implementation
+        run: python3 tools/patch_android_source.py "$PROJECT_ROOT"
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
