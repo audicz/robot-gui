@@ -131,7 +131,7 @@ class MobileGatewayClient(
 
     @Synchronized private fun consumeEnvelope(b: ByteArray) {
         if (b.size < 8 || b[0] != 0x4d.toByte() || b[1] != 0x37.toByte() ||
-            (b[2].toInt() and 0xff) != 1 || (b[3].toInt() and 0xff) != TYPE_FRAME) {
+            (b[2].toInt() and 0xff) != 1) {
             bad++
             publishStatus()
             return
@@ -142,9 +142,19 @@ class MobileGatewayClient(
             publishStatus()
             return
         }
+        val type = b[3].toInt() and 0xff
+        lastRx = SystemClock.elapsedRealtime()
+        if (type == 0x81 && length == 4) {
+            publishStatus()
+            return
+        }
+        if (type != TYPE_FRAME) {
+            bad++
+            publishStatus()
+            return
+        }
         val frame = b.copyOfRange(8, b.size)
         packets++
-        lastRx = SystemClock.elapsedRealtime()
         when (frame.firstOrNull()?.toInt()?.and(0xff)) {
             0xD9 -> consumeLidar(frame)
             0xD1 -> consumeRobot(frame)
