@@ -102,20 +102,38 @@ class BleCockpitManager(context: Context, private val changed:(CockpitSnapshot)-
 
     private val scanCallback=object:ScanCallback(){
         override fun onScanResult(callbackType:Int,result:ScanResult){
-            val d=result.device
-            val name=try { d.name ?: result.scanRecord?.deviceName ?: "BLE zařízení" } catch (_:SecurityException){"BLE zařízení"}
-            seen[d.address]=SeenDevice(name,d.address,result.rssi,d)
-            state=state.copy(devices=seen.values.sortedByDescending{it.rssi})
-            publish()
+            if(!state.scanRunning)return
+            try {
+                val d=result.device
+                val address=d.address ?: return
+                val name=d.name ?: result.scanRecord?.deviceName ?: "BLE zařízení (bez názvu)"
+                seen[address]=SeenDevice(name,address,result.rssi,d)
+                state=state.copy(devices=seen.values.sortedByDescending{it.rssi},
+                    scanMessage="Vyhledávám… nalezeno "+seen.size+" zařízení")
+                publish()
+            } catch (_:SecurityException) {
+                stopScan()
+                state=state.copy(scanMessage="Android odebral oprávnění BLUETOOTH_SCAN")
+                publish()
+            }
         }
         override fun onBatchScanResults(results:MutableList<ScanResult>){
-            results.forEach { result ->
-                val d=result.device
-                val name=try { d.name ?: result.scanRecord?.deviceName ?: "BLE zařízení" } catch (_:SecurityException){"BLE zařízení"}
-                seen[d.address]=SeenDevice(name,d.address,result.rssi,d)
+            if(!state.scanRunning)return
+            try {
+                results.forEach { result ->
+                    val d=result.device
+                    val address=d.address ?: return@forEach
+                    val name=d.name ?: result.scanRecord?.deviceName ?: "BLE zařízení (bez názvu)"
+                    seen[address]=SeenDevice(name,address,result.rssi,d)
+                }
+                state=state.copy(devices=seen.values.sortedByDescending{it.rssi},
+                    scanMessage="Vyhledávám… nalezeno "+seen.size+" zařízení")
+                publish()
+            } catch (_:SecurityException) {
+                stopScan()
+                state=state.copy(scanMessage="Android odebral oprávnění BLUETOOTH_SCAN")
+                publish()
             }
-            state=state.copy(devices=seen.values.sortedByDescending{it.rssi},scanMessage="Nalezeno ${seen.size} zařízení")
-            publish()
         }
         override fun onScanFailed(errorCode:Int){
             val message=when(errorCode){
@@ -123,8 +141,12 @@ class BleCockpitManager(context: Context, private val changed:(CockpitSnapshot)-
                 ScanCallback.SCAN_FAILED_APPLICATION_REGISTRATION_FAILED -> "Android odmítl registraci BLE skeneru"
                 ScanCallback.SCAN_FAILED_INTERNAL_ERROR -> "Interní chyba Bluetooth adaptéru"
                 ScanCallback.SCAN_FAILED_FEATURE_UNSUPPORTED -> "BLE skenování není podporováno"
-                else -> "BLE skenování selhalo (kód $errorCode)"
+                5 -> "Bluetooth skener nemá volné hardwarové prostředky"
+                6 -> "Příliš časté spouštění BLE skenování – chvíli počkej"
+                else -> "BLE skenování selhalo (kód "+errorCode+")"
             }
+            scanStop?.let{main.removeCallbacks(it)}
+            scanStop=null
             state=state.copy(scanRunning=false,scanMessage=message)
             publish()
         }
