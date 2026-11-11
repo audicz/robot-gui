@@ -59,7 +59,7 @@ private fun sp(v:VescTelemetry)=if(v.valid)v.erpm/7f*(PI*.254*60/1000).toFloat()
 
 @Composable private fun App(s:CockpitSnapshot,gs:GatewayStatus,scan:()->Unit,connect:(SeenDevice,DeviceRole)->Unit,off:(DeviceRole)->Unit,onGatewayConnect:(String)->Unit,onRobotStop:()->Unit){
  var page by remember{mutableStateOf("MAIN")};var role by remember{mutableStateOf(DeviceRole.VESC1)};var slam by remember{mutableStateOf(SlamSnapshot())};val engine=remember{SlamEngine()}
- LaunchedEffect(s.lidar?.receivedAt){s.lidar?.let{slam=withContext(Dispatchers.Default){engine.process(it)}}}
+ LaunchedEffect(s.lidar?.receivedAt){s.lidar?.let{slam=withContext(Dispatchers.Default){engine.process(it,s.imu)}}}
  Scaffold(containerColor=BG,bottomBar={NavigationBar(containerColor=P){listOf("MAIN","POWER","SENSORS","SLAM","MENU").forEach{NavigationBarItem(page==it,{page=it},icon={Text(it.take(1))},label={Text(it,fontSize=9.sp)})}}}){pad->
   Column(Modifier.fillMaxSize().padding(pad).background(BG)){
    Row(Modifier.fillMaxWidth().background(P).padding(14.dp),horizontalArrangement=Arrangement.SpaceBetween){Column{Text("MAROŠ",fontSize=20.sp,fontWeight=FontWeight.Black,color=T);Text("MOBILE COCKPIT V3",fontSize=9.sp,color=M)};Text(page+" · BLE "+s.links.values.count{it.connected}+" · Wi-Fi "+if(gs.online)"ONLINE" else "OFF",color=if(gs.online)G else O)}
