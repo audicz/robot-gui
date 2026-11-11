@@ -10,6 +10,7 @@ import android.bluetooth.BluetoothProfile
 import android.bluetooth.BluetoothManager
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
+import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
@@ -56,7 +57,7 @@ data class CockpitSnapshot(
     val bms:BmsTelemetry=BmsTelemetry(), val imu:ImuTelemetry=ImuTelemetry(),
     val gps:GpsTelemetry=GpsTelemetry(), val lidar:LidarScan?=null,
     val lidarPackets:Long=0, val lidarDropped:Long=0, val lidarBad:Long=0,
-    val lastRawHex:String="", val scanRunning:Boolean=false
+    val lastRawHex:String="", val scanRunning:Boolean=false, val scanMessage:String="Připraveno ke skenování"
 )
 
 class BleCockpitManager(context: Context, private val changed:(CockpitSnapshot)->Unit) {
@@ -105,8 +106,24 @@ class BleCockpitManager(context: Context, private val changed:(CockpitSnapshot)-
             state=state.copy(devices=seen.values.sortedByDescending{it.rssi})
             publish()
         }
+        override fun onBatchScanResults(results:MutableList<ScanResult>){
+            results.forEach { result ->
+                val d=result.device
+                val name=try { d.name ?: result.scanRecord?.deviceName ?: "BLE zařízení" } catch (_:SecurityException){"BLE zařízení"}
+                seen[d.address]=SeenDevice(name,d.address,result.rssi,d)
+            }
+            state=state.copy(devices=seen.values.sortedByDescending{it.rssi},scanMessage="Nalezeno ${seen.size} zařízení")
+            publish()
+        }
         override fun onScanFailed(errorCode:Int){
-            state=state.copy(scanRunning=false)
+            val message=when(errorCode){
+                ScanCallback.SCAN_FAILED_ALREADY_STARTED -> "Skenování už běží"
+                ScanCallback.SCAN_FAILED_APPLICATION_REGISTRATION_FAILED -> "Android odmítl registraci BLE skeneru"
+                ScanCallback.SCAN_FAILED_INTERNAL_ERROR -> "Interní chyba Bluetooth adaptéru"
+                ScanCallback.SCAN_FAILED_FEATURE_UNSUPPORTED -> "BLE skenování není podporováno"
+                else -> "BLE skenování selhalo (kód $errorCode)"
+            }
+            state=state.copy(scanRunning=false,scanMessage=message)
             publish()
         }
     }
@@ -114,20 +131,42 @@ class BleCockpitManager(context: Context, private val changed:(CockpitSnapshot)-
     @SuppressLint("MissingPermission")
     fun startScan(){
         try{
-            seen.clear()
-            state=state.copy(devices=emptyList(),scanRunning=true)
-            publish()
-            scanner.startScan(scanCallback)
             scanStop?.let{main.removeCallbacks(it)}
+            try{scanner?.stopScan(scanCallback)}catch(_:Exception){}
+            if(!adapter.isEnabled){
+                state=state.copy(scanRunning=false,scanMessage="Bluetooth je vypnutý – zapni ho v nastavení telefonu")
+                publish();return
+            }
+            val bleScanner=scanner
+            if(bleScanner==null){
+                state=state.copy(scanRunning=false,scanMessage="BLE skener není dostupný")
+                publish();return
+            }
+            seen.clear()
+            state=state.copy(devices=emptyList(),scanRunning=true,scanMessage="Vyhledávám BLE zařízení…")
+            publish()
+            val settings=ScanSettings.Builder()
+                .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+                .setReportDelay(0L)
+                .build()
+            bleScanner.startScan(null,settings,scanCallback)
             scanStop=Runnable{
-                try{scanner.stopScan(scanCallback)}catch(_:Exception){}
-                state=state.copy(scanRunning=false,devices=seen.values.sortedByDescending{it.rssi})
+                try{bleScanner.stopScan(scanCallback)}catch(_:Exception){}
+                state=state.copy(scanRunning=false,devices=seen.values.sortedByDescending{it.rssi},
+                    scanMessage=if(seen.isEmpty())"Nic nenalezeno – ověř, že zařízení vysílá BLE reklamu a je v dosahu" else "Dokončeno: ${seen.size} zařízení")
                 publish()
-            }.also{main.postDelayed(it,12000L)}
+            }.also{main.postDelayed(it,15000L)}
+        }catch(e:SecurityException){
+            state=state.copy(scanRunning=false,scanMessage="Chybí oprávnění Zařízení v okolí / Bluetooth")
+            publish()
         }catch(e:Exception){
-            state=state.copy(scanRunning=false)
+            state=state.copy(scanRunning=false,scanMessage="Chyba BLE: ${e.javaClass.simpleName}: ${e.message ?: "bez detailu"}")
             publish()
         }
+    }
+    fun setScanMessage(message:String){
+        state=state.copy(scanRunning=false,scanMessage=message)
+        publish()
     }
 
     @SuppressLint("MissingPermission")
