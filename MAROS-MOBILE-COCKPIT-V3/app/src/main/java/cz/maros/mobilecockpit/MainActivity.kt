@@ -110,7 +110,7 @@ private fun sp(v:VescTelemetry)=if(v.valid)v.erpm/7f*(PI*.254*60/1000).toFloat()
  Row(horizontalArrangement=Arrangement.spacedBy(6.dp)){OutlinedButton({onCommand(6)},Modifier.weight(1f)){Text("LEVEL")};OutlinedButton({onCommand(7)},Modifier.weight(1f)){Text("NOSE UP")};OutlinedButton({onCommand(8)},Modifier.weight(1f)){Text("RIGHT SIDE")}}
  Text("Povel se předává přes displej D7 do LiDAR Bridge. Kalibraci prováděj podle pokynů na obrazovce.",color=M,fontSize=10.sp)}}
 @Composable private fun Info(t:String,a:String,b:String){Frame(t){PanelCard{Text(a,color=C,fontWeight=FontWeight.Bold);Text(b,color=T);Text("Only real received data are shown; missing values are not simulated.",color=M,fontSize=10.sp)}}}
-@Composable private fun Pair(s:CockpitSnapshot,gs:GatewayStatus,role:DeviceRole,setRole:(DeviceRole)->Unit,scan:()->Unit,connect:(SeenDevice,DeviceRole)->Unit,onGatewayConnect:(String)->Unit){Frame("PAIRING / BLE","VESC NUS · JBD · Sensor Hub · Xiaomi LDS"){
+@Composable private fun Pair(s:CockpitSnapshot,gs:GatewayStatus,role:DeviceRole,setRole:(DeviceRole)->Unit,scan:()->Unit,connect:(SeenDevice,DeviceRole)->Unit,onGatewayConnect:(String)->Unit){Frame("PAIRING / BLE","VESC NUS · JBD · Sensor Hub · legacy LDS only"){
  var expanded by remember{mutableStateOf(false)}
  var gatewayHost by remember{mutableStateOf(gs.host.ifBlank{"192.168.4.1"})}
  PanelCard {
