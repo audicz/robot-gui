@@ -7,6 +7,7 @@
 #include <stddef.h>
 #include <string.h>
 #include <fcntl.h>
+#include <unistd.h>
 #include "lwip/sockets.h"
 #include "lwip/inet.h"
 #include "lwip/errno.h"
@@ -46,11 +47,6 @@ inline void send_message(uint8_t type, const uint8_t *payload, uint16_t length) 
   put_u16(packet + 4, length);
   put_u16(packet + 6, ++txSequence);
   if (length && payload) memcpy(packet + 8, payload, length);
-  const uint32_t now = (uint32_t)(esp_timer_get_time() / 1000ULL);
-  if ((uint32_t)(now - phoneLastSeenMs) > 5000U) {
-    phoneKnown = false;
-    return;
-  }
   (void)sendto(udpFd, packet, (size_t)length + 8U, 0,
                (const sockaddr *)&phoneAddr, sizeof(phoneAddr));
 }
