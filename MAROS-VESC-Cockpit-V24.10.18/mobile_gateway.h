@@ -19,6 +19,7 @@ static constexpr uint8_t VERSION = 1;
 static constexpr uint8_t MSG_HELLO = 0x01;
 static constexpr uint8_t MSG_STOP = 0x11;
 static constexpr uint8_t MSG_BRIDGE_CMD = 0x20;
+static constexpr uint8_t MSG_LIDAR_MOTOR = 0x21;
 static constexpr uint8_t MSG_FRAME = 0x80;
 static constexpr uint8_t MSG_HEARTBEAT = 0x81;
 
@@ -30,6 +31,8 @@ static uint16_t txSequence = 0;
 static bool stopPending = false;
 static bool bridgeCmdPending = false;
 static uint8_t bridgeCmd = 0;
+static bool lidarMotorPending = false;
+static bool lidarMotorOn = false;
 
 inline void put_u16(uint8_t *p, uint16_t v) {
   p[0] = (uint8_t)(v & 0xffU);
@@ -109,6 +112,12 @@ inline void tick(uint32_t now) {
       phoneLastSeenMs = now;
       bridgeCmd = packet[8];
       bridgeCmdPending = true;
+    } else if (type == MSG_LIDAR_MOTOR && length == 1U && packet[8] <= 1U) {
+      phoneAddr = from;
+      phoneKnown = true;
+      phoneLastSeenMs = now;
+      lidarMotorOn = packet[8] == 1U;
+      lidarMotorPending = true;
     }
   }
   if (phoneKnown && (uint32_t)(now - phoneLastSeenMs) > 5000U) phoneKnown = false;
@@ -130,6 +139,12 @@ inline bool take_bridge_cmd(uint8_t &cmd) {
   if (!bridgeCmdPending) return false;
   cmd = bridgeCmd;
   bridgeCmdPending = false;
+  return true;
+}
+inline bool take_lidar_motor(bool &on) {
+  if (!lidarMotorPending) return false;
+  on = lidarMotorOn;
+  lidarMotorPending = false;
   return true;
 }
 
