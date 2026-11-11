@@ -22,7 +22,9 @@ data class GatewayStatus(
     val leftPwm: Int = 0,
     val rightPwm: Int = 0,
     val encLeft: Long = 0,
-    val encRight: Long = 0
+    val encRight: Long = 0,
+    val imu: ImuTelemetry = ImuTelemetry(),
+    val gps: GpsTelemetry = GpsTelemetry()
 )
 
 /**
@@ -161,7 +163,10 @@ class MobileGatewayClient(
             // Forwarded sensor/scanhead/odometry/status frames remain available
             // to the raw diagnostics counter. Typed decoders must follow exact
             // source protocol structures before they are shown as engineering data.
-            0xD2, 0xD4, 0xD5, 0xD6, 0xD7, 0xDB, 0xDC -> Unit
+            0xD2, 0xD7, 0xDB, 0xDC -> Unit
+            0xD4 -> if (frame.size != 20) bad++
+            0xD5 -> consumeImu(frame)
+            0xD6 -> consumeGps(frame)
             else -> bad++
         }
         publishStatus()
@@ -199,6 +204,42 @@ class MobileGatewayClient(
             } else bad++
             fragmentMask = 0
         }
+    }
+
+    private fun consumeImu(p: ByteArray) {
+        if (p.size != 21) { bad++; return }
+        val flags = p[1].toInt() and 0xff
+        latestRobot = latestRobot.copy(imu = ImuTelemetry(
+            valid = (flags and 0x01) != 0,
+            zeroed = (flags and 0x02) != 0,
+            magOk = (flags and 0x04) != 0,
+            roll = s16(p, 4) / 100f,
+            pitch = s16(p, 6) / 100f,
+            gForward = s16(p, 8) / 1000f,
+            gRight = s16(p, 10) / 1000f,
+            gz = s16(p, 12) / 10f,
+            gx = s16(p, 14) / 10f,
+            gy = s16(p, 16) / 10f,
+            heading = u16(p, 18) / 10f,
+            temp = p[20].toInt(),
+            updatedAt = System.currentTimeMillis()
+        ))
+    }
+
+    private fun consumeGps(p: ByteArray) {
+        if (p.size != 19) { bad++; return }
+        val flags = p[1].toInt() and 0xff
+        latestRobot = latestRobot.copy(gps = GpsTelemetry(
+            fix = (flags and 0x01) != 0,
+            sats = p[2].toInt() and 0xff,
+            hdop = (p[3].toInt() and 0xff) / 10f,
+            latitude = s32(p, 4) / 1e7,
+            longitude = s32(p, 8) / 1e7,
+            speedKmh = u16(p, 12) / 100f,
+            course = u16(p, 14) / 10f,
+            altitude = s16(p, 16).toFloat(),
+            updatedAt = System.currentTimeMillis()
+        ))
     }
 
     private fun consumeRobot(p: ByteArray) {
@@ -244,6 +285,10 @@ class MobileGatewayClient(
 
     private fun u16(b: ByteArray, i: Int): Int =
         (b[i].toInt() and 0xff) or ((b[i + 1].toInt() and 0xff) shl 8)
+
+    private fun s16(b: ByteArray, i: Int): Int = u16(b, i).toShort().toInt()
+
+    private fun s32(b: ByteArray, i: Int): Double = u32(b, i).toInt().toDouble()
 
     private fun u32(b: ByteArray, i: Int): Long =
         (b[i].toLong() and 0xff) or
