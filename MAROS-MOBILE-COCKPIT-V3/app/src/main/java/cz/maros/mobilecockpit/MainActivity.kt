@@ -48,7 +48,8 @@ class MainActivity:ComponentActivity(){
   setContent{val s by state;MaterialTheme(colorScheme=darkColorScheme(primary=C,background=BG,surface=P,onSurface=T)){App(s,{if(s.scanRunning)ble.stopScan()else if(ok())ble.startScan()else{pending=true;ask()}},{d,r->if(ok())ble.connect(d,r)else{pending=false;ask()}},{ble.disconnect(it)})}}}
  private fun ok():Boolean{val p=if(Build.VERSION.SDK_INT>=31)arrayOf(Manifest.permission.BLUETOOTH_SCAN,Manifest.permission.BLUETOOTH_CONNECT)else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION);return p.all{ContextCompat.checkSelfPermission(this,it)==PackageManager.PERMISSION_GRANTED}}
  private fun ask(){val p=if(Build.VERSION.SDK_INT>=31)arrayOf(Manifest.permission.BLUETOOTH_SCAN,Manifest.permission.BLUETOOTH_CONNECT)else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION);permissionLauncher.launch(p)}
- override fun onStop(){if(::ble.isInitialized)ble.stopScan();super.onStop()}\n override fun onDestroy(){if(::ble.isInitialized)ble.disconnectAll();super.onDestroy()}
+ override fun onStop(){if(::ble.isInitialized)ble.stopScan();super.onStop()}
+ override fun onDestroy(){if(::ble.isInitialized)ble.disconnectAll();super.onDestroy()}
 }
 private fun f(v:Float,d:Int=1)=if(v.isNaN()||v.isInfinite())"—" else "%.${d}f".format(v)
 private fun sp(v:VescTelemetry)=if(v.valid)v.erpm/7f*(PI*.254*60/1000).toFloat()else Float.NaN
