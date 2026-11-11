@@ -45,7 +45,7 @@ class MainActivity:ComponentActivity(){
  private val state=mutableStateOf(CockpitSnapshot())
  private var pending=false
  private lateinit var permissionLauncher:ActivityResultLauncher<Array<String>>
- override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState);ble=BleCockpitManager(this){state.value=it}
+ override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState);ble=BleCockpitManager(this){next->state.value=next.copy(lidar=next.lidar?:state.value.lidar,lidarPackets=maxOf(next.lidarPackets,state.value.lidarPackets),lidarDropped=maxOf(next.lidarDropped,state.value.lidarDropped),lidarBad=maxOf(next.lidarBad,state.value.lidarBad))}
   gateway=MobileGatewayClient(this,{scan,packets,dropped,bad->runOnUiThread{state.value=state.value.copy(lidar=scan,lidarPackets=packets,lidarDropped=dropped,lidarBad=bad)}},{status->runOnUiThread{gatewayState.value=status}})
   permissionLauncher=registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()){result->if(result.values.all{it}&&pending){pending=false;ble.startScan()}else if(pending){pending=false;ble.setScanMessage("Oprávnění Bluetooth / Zařízení v okolí nebylo povoleno")}}
   setContent{val s by state;val gs by gatewayState;MaterialTheme(colorScheme=darkColorScheme(primary=C,background=BG,surface=P,onSurface=T)){App(s,gs,{if(s.scanRunning)ble.stopScan()else if(ok())ble.startScan()else{pending=true;ask()}},{d,r->if(ok())ble.connect(d,r)else{pending=false;ask()}},{ble.disconnect(it)},{gateway.connect(it)})}}}
