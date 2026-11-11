@@ -62,7 +62,7 @@ private fun sp(v:VescTelemetry)=if(v.valid)v.erpm/7f*(PI*.254*60/1000).toFloat()
  LaunchedEffect(s.lidar?.receivedAt){s.lidar?.let{slam=withContext(Dispatchers.Default){engine.process(it,s.imu)}}}
  Scaffold(containerColor=BG,bottomBar={NavigationBar(containerColor=P){listOf("MAIN","POWER","SENSORS","SLAM","MENU").forEach{NavigationBarItem(page==it,{page=it},icon={Text(it.take(1))},label={Text(it,fontSize=9.sp)})}}}){pad->
   Column(Modifier.fillMaxSize().padding(pad).background(BG)){
-   Row(Modifier.fillMaxWidth().background(P).padding(14.dp),horizontalArrangement=Arrangement.SpaceBetween){Column{Text("MAROŠ",fontSize=20.sp,fontWeight=FontWeight.Black,color=T);Text("MOBILE COCKPIT V3",fontSize=9.sp,color=M)};Text(page+" · BLE "+s.links.values.count{it.connected}+" · Wi-Fi "+if(gs.online)"ONLINE" else "OFF",color=if(gs.online)G else O)}
+   Row(Modifier.fillMaxWidth().background(P).padding(14.dp),horizontalArrangement=Arrangement.SpaceBetween){Column{Text("MAROŠ",fontSize=20.sp,fontWeight=FontWeight.Black,color=T);Text("MOBILE COCKPIT V3.1 · GATEWAY",fontSize=9.sp,color=M)};Text(page+" · BLE "+s.links.values.count{it.connected}+" · Wi-Fi "+if(gs.online)"ONLINE" else "OFF",color=if(gs.online)G else O)}
    HorizontalDivider(color=E)
    when(page){
     "MAIN"->Main(s){page=it}
