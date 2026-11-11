@@ -373,7 +373,7 @@ class MobileGatewayClient(
             gx = s16(p, 14) / 10f,
             gy = s16(p, 16) / 10f,
             heading = u16(p, 18) / 10f,
-            temp = p[20].toInt(),
+            temp = p[20].toInt().toFloat(),
             updatedAt = System.currentTimeMillis()
         ))
     }
@@ -385,8 +385,8 @@ class MobileGatewayClient(
             fix = (flags and 0x01) != 0,
             sats = p[2].toInt() and 0xff,
             hdop = (p[3].toInt() and 0xff) / 10f,
-            latitude = s32(p, 4) / 1e7,
-            longitude = s32(p, 8) / 1e7,
+            latitude = s32(p, 4).toDouble() / 1e7,
+            longitude = s32(p, 8).toDouble() / 1e7,
             speedKmh = u16(p, 12) / 100f,
             course = u16(p, 14) / 10f,
             altitude = s16(p, 16).toFloat(),
@@ -461,8 +461,6 @@ class MobileGatewayClient(
         for (i in offset until offset + length) value = value xor (b[i].toInt() and 0xff)
         return value
     }
-
-    private fun s32(b: ByteArray, i: Int): Double = u32(b, i).toInt().toDouble()
 
     private fun u32(b: ByteArray, i: Int): Long =
         (b[i].toLong() and 0xff) or
