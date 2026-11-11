@@ -45,10 +45,10 @@ class MainActivity:ComponentActivity(){
  private lateinit var permissionLauncher:ActivityResultLauncher<Array<String>>
  override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState);ble=BleCockpitManager(this){state.value=it}
   permissionLauncher=registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()){result->if(result.values.all{it}&&pending){pending=false;ble.startScan()}else if(pending){pending=false;ble.setScanMessage("Oprávnění Bluetooth / Zařízení v okolí nebylo povoleno")}}
-  setContent{val s by state;MaterialTheme(colorScheme=darkColorScheme(primary=C,background=BG,surface=P,onSurface=T)){App(s,{if(ok())ble.startScan()else{pending=true;ask()}},{d,r->if(ok())ble.connect(d,r)else ask()},{ble.disconnect(it)})}}}
+  setContent{val s by state;MaterialTheme(colorScheme=darkColorScheme(primary=C,background=BG,surface=P,onSurface=T)){App(s,{if(s.scanRunning)ble.stopScan()else if(ok())ble.startScan()else{pending=true;ask()}},{d,r->if(ok())ble.connect(d,r)else{pending=false;ask()}},{ble.disconnect(it)})}}}
  private fun ok():Boolean{val p=if(Build.VERSION.SDK_INT>=31)arrayOf(Manifest.permission.BLUETOOTH_SCAN,Manifest.permission.BLUETOOTH_CONNECT)else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION);return p.all{ContextCompat.checkSelfPermission(this,it)==PackageManager.PERMISSION_GRANTED}}
  private fun ask(){val p=if(Build.VERSION.SDK_INT>=31)arrayOf(Manifest.permission.BLUETOOTH_SCAN,Manifest.permission.BLUETOOTH_CONNECT)else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION);permissionLauncher.launch(p)}
- override fun onDestroy(){if(::ble.isInitialized)ble.disconnectAll();super.onDestroy()}
+ override fun onStop(){if(::ble.isInitialized)ble.stopScan();super.onStop()}\n override fun onDestroy(){if(::ble.isInitialized)ble.disconnectAll();super.onDestroy()}
 }
 private fun f(v:Float,d:Int=1)=if(v.isNaN()||v.isInfinite())"—" else "%.${d}f".format(v)
 private fun sp(v:VescTelemetry)=if(v.valid)v.erpm/7f*(PI*.254*60/1000).toFloat()else Float.NaN
@@ -105,7 +105,7 @@ private fun sp(v:VescTelemetry)=if(v.valid)v.erpm/7f*(PI*.254*60/1000).toFloat()
 @Composable private fun Pair(s:CockpitSnapshot,role:DeviceRole,setRole:(DeviceRole)->Unit,scan:()->Unit,connect:(SeenDevice,DeviceRole)->Unit){Frame("PAIRING / BLE","VESC NUS · JBD · Sensor Hub · Xiaomi LDS"){
  var expanded by remember{mutableStateOf(false)}
  Box{OutlinedButton({expanded=true},Modifier.fillMaxWidth()){Text("ROLE: "+role.title)};DropdownMenu(expanded,{expanded=false}){DeviceRole.values().forEach{DropdownMenuItem(text={Text(it.title)},onClick={setRole(it);expanded=false})}}}
- Button(scan,Modifier.fillMaxWidth(),enabled=!s.scanRunning){Text(if(s.scanRunning)"SCANNING…"else"SCAN BLE")}
+ Button(scan,Modifier.fillMaxWidth()){Text(if(s.scanRunning)"STOP SCAN"else"SCAN BLE")}
  Text(s.scanMessage,color=if(s.scanRunning)C else O,fontSize=11.sp)
  Text(s.devices.size.toString()+" devices found",color=M)
  LazyColumn(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(6.dp)){items(s.devices,key={it.address}){d->PanelCard{Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(d.name,color=T);Text(d.address+" · "+d.rssi+" dBm",color=M,fontSize=10.sp)};Button({connect(d,role)}){Text("CONNECT")}}}}}
