@@ -160,7 +160,7 @@ class SlamEngine {
         val parent=IntArray(SIZE*SIZE){-1}
         val closed=BooleanArray(SIZE*SIZE)
         fun heuristic(x:Int,y:Int)=abs(x-end.first)+abs(y-end.second).toFloat()
-        if(odds[startId].toInt() > -2 || odds[endId].toInt() > -2) return emptyList()
+        if(odds[endId].toInt() > -2) return emptyList()
         gScore[startId]=0f;open.add(Node(start.first,start.second,0f,heuristic(start.first,start.second)))
         val dirs=arrayOf(intArrayOf(1,0),intArrayOf(-1,0),intArrayOf(0,1),intArrayOf(0,-1))
         var found=false
