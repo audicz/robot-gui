@@ -531,7 +531,7 @@ class BleCockpitManager(context: Context, private val changed:(CockpitSnapshot)-
         private var packets=0L
         private var bad=0L
         fun feed(chunk:ByteArray){
-            chunk.forEach{buffer.add(it)}
+            chunk.forEach{if(buffer.size>=160)buffer.removeAt(0);buffer.add(it)}
             while(buffer.size>=6){
                 fun headAt(i:Int,ack:Boolean)=if(ack)
                     (buffer[i].toInt() and 255)==0xFD && (buffer[i+1].toInt() and 255)==0xFC && (buffer[i+2].toInt() and 255)==0xFB && (buffer[i+3].toInt() and 255)==0xFA
@@ -565,7 +565,7 @@ class BleCockpitManager(context: Context, private val changed:(CockpitSnapshot)-
             }
         }
         private fun decode(p:ByteArray):RadarTelemetry?{
-            if(p.isEmpty())return null
+            if(p.isEmpty())return RadarTelemetry(valid=true,targets=emptyList())
             val declared=p[0].toInt() and 255
             val alarm=p.size>=2 && (p[1].toInt() and 255)==1
             val available=if(p.size>=2)(p.size-2)/5 else 0
