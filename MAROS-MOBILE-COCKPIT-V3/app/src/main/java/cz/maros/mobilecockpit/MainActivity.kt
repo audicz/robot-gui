@@ -48,7 +48,7 @@ class MainActivity:ComponentActivity(){
  override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState);ble=BleCockpitManager(this){next->state.value=next.copy(lidar=next.lidar?:state.value.lidar,imu=if(gatewayState.value.imu.updatedAt>0)gatewayState.value.imu else next.imu,gps=if(gatewayState.value.gps.updatedAt>0)gatewayState.value.gps else next.gps,lidarPackets=maxOf(next.lidarPackets,state.value.lidarPackets),lidarDropped=maxOf(next.lidarDropped,state.value.lidarDropped),lidarBad=maxOf(next.lidarBad,state.value.lidarBad))}
   gateway=MobileGatewayClient(this,{scan,packets,dropped,bad->runOnUiThread{state.value=state.value.copy(lidar=scan,lidarPackets=packets,lidarDropped=dropped,lidarBad=bad)}},{status->runOnUiThread{gatewayState.value=status;state.value=state.value.copy(imu=if(status.imu.updatedAt>0)status.imu else state.value.imu,gps=if(status.gps.updatedAt>0)status.gps else state.value.gps)}})
   permissionLauncher=registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()){result->if(result.values.all{it}&&pending){pending=false;ble.startScan()}else if(pending){pending=false;ble.setScanMessage("Oprávnění Bluetooth / Zařízení v okolí nebylo povoleno")}}
-  setContent{val s by state;val gs by gatewayState;MaterialTheme(colorScheme=darkColorScheme(primary=C,background=BG,surface=P,onSurface=T)){App(s,gs,{if(s.scanRunning)ble.stopScan()else if(ok())ble.startScan()else{pending=true;ask()}},{d,r->if(ok())ble.connect(d,r)else{pending=false;ask()}},{ble.disconnect(it)},{gateway.connect(it)},{gateway.sendStop()})}}}
+  setContent{val s by state;val gs by gatewayState;MaterialTheme(colorScheme=darkColorScheme(primary=C,background=BG,surface=P,onSurface=T)){App(s,gs,{if(s.scanRunning)ble.stopScan()else if(ok())ble.startScan()else{pending=true;ask()}},{d,r->if(ok())ble.connect(d,r)else{pending=false;ask()}},{ble.disconnect(it)},{gateway.connect(it)},{gateway.sendStop()},{gateway.sendBridgeCommand(it)})}}}
  private fun ok():Boolean{val p=if(Build.VERSION.SDK_INT>=31)arrayOf(Manifest.permission.BLUETOOTH_SCAN,Manifest.permission.BLUETOOTH_CONNECT)else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION);return p.all{ContextCompat.checkSelfPermission(this,it)==PackageManager.PERMISSION_GRANTED}}
  private fun ask(){val p=if(Build.VERSION.SDK_INT>=31)arrayOf(Manifest.permission.BLUETOOTH_SCAN,Manifest.permission.BLUETOOTH_CONNECT)else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION);permissionLauncher.launch(p)}
  override fun onStop(){if(::ble.isInitialized)ble.stopScan();super.onStop()}
@@ -57,7 +57,7 @@ class MainActivity:ComponentActivity(){
 private fun f(v:Float,d:Int=1)=if(v.isNaN()||v.isInfinite())"—" else "%.${d}f".format(v)
 private fun sp(v:VescTelemetry)=if(v.valid)v.erpm/7f*(PI*.254*60/1000).toFloat()else Float.NaN
 
-@Composable private fun App(s:CockpitSnapshot,gs:GatewayStatus,scan:()->Unit,connect:(SeenDevice,DeviceRole)->Unit,off:(DeviceRole)->Unit,onGatewayConnect:(String)->Unit,onRobotStop:()->Unit){
+@Composable private fun App(s:CockpitSnapshot,gs:GatewayStatus,scan:()->Unit,connect:(SeenDevice,DeviceRole)->Unit,off:(DeviceRole)->Unit,onGatewayConnect:(String)->Unit,onRobotStop:()->Unit,onBridgeCommand:(Int)->Unit){
  var page by remember{mutableStateOf("MAIN")};var role by remember{mutableStateOf(DeviceRole.VESC1)};var slam by remember{mutableStateOf(SlamSnapshot())};val engine=remember{SlamEngine()}
  LaunchedEffect(s.lidar?.receivedAt){s.lidar?.let{slam=withContext(Dispatchers.Default){engine.process(it,s.imu)}}}
  Scaffold(containerColor=BG,bottomBar={NavigationBar(containerColor=P){listOf("MAIN","POWER","SENSORS","SLAM","MENU").forEach{NavigationBarItem(page==it,{page=it},icon={Text(it.take(1))},label={Text(it,fontSize=9.sp)})}}}){pad->
@@ -67,7 +67,7 @@ private fun sp(v:VescTelemetry)=if(v.valid)v.erpm/7f*(PI*.254*60/1000).toFloat()
    when(page){
     "MAIN"->Main(s){page=it}
     "POWER"->ValuesPage(s)
-    "SENSORS"->Sensors(s)
+    "SENSORS"->Sensors(s,onBridgeCommand)
     "SLAM","ROUTE"->Slam(s,slam){x,y->slam=engine.setGoal(x,y)}
     "MENU"->Menu{page=it}
     "PAIRING"->Pair(s,gs,role,{role=it},scan,connect,onGatewayConnect)
@@ -79,7 +79,7 @@ private fun sp(v:VescTelemetry)=if(v.valid)v.erpm/7f*(PI*.254*60/1000).toFloat()
     "ENERGY"->Info("ENERGY","Ah "+f(s.vesc1.ah+s.vesc2.ah,2),"Wh "+f(s.vesc1.wh+s.vesc2.wh,1))
     "GPS","TRACK"->Info("GPS / TRACK",if(s.gps.fix)"FIX "+s.gps.sats+" sats" else "NO GPS FIX",f(s.gps.latitude.toFloat(),6)+" / "+f(s.gps.longitude.toFloat(),6))
     "HISTORY"->Info("HISTORY","Speed / power","Current / temperature")
-    "HORIZON","G-METER","GYRO"->Sensors(s)
+    "HORIZON","G-METER","GYRO"->Sensors(s,onBridgeCommand)
     "SETTINGS"->Info("SETTINGS","Wheel 0.254 m · pole pairs 7","VESC write disabled")
     "VESC CFG"->Info("VESC CONFIG","READ ONLY","Configuration writes disabled")
     "PROFILES"->Info("PROFILES","ECO 25 km/h / 30 A","NORMAL 40 km/h / 60 A · SPORT 55 km/h / 100 A")
@@ -104,7 +104,11 @@ private fun sp(v:VescTelemetry)=if(v.valid)v.erpm/7f*(PI*.254*60/1000).toFloat()
 @Composable private fun ValuesPage(s:CockpitSnapshot){Frame("DRIVE / POWER","Overview"){val v=if(s.vesc1.valid)s.vesc1 else s.vesc2;listOf("SPEED" to f(sp(v)),"POWER kW" to f(v.voltage*v.batteryA/1000,2),"DUTY" to f(v.duty*100,0),"PACK V" to f(s.bms.voltage),"CURRENT A" to f(s.bms.current),"SOC" to f(s.bms.soc,0),"MOTOR A" to f(v.motorA),"FET C" to f(v.fetC)).chunked(2).forEach{row->Row(horizontalArrangement=Arrangement.spacedBy(7.dp)){row.forEach{Metric(it.first,it.second,mod=Modifier.weight(1f))}}}}}
 @Composable private fun Vesc(s:CockpitSnapshot){Frame("VESC TELEMETRY","NUS / COMM_GET_VALUES / 250 ms / read only"){listOf("VESC 1" to s.vesc1,"VESC 2" to s.vesc2).forEach{(n,v)->PanelCard{Text(n+"  "+if(v.valid)"ONLINE"else"OFFLINE",color=if(v.valid)G else R);Text("SPEED "+f(sp(v))+" km/h · ERPM "+f(v.erpm,0),color=T);Text("MOTOR "+f(v.motorA)+" A · BATTERY "+f(v.batteryA)+" A",color=T);Text("FET "+f(v.fetC)+" °C · MOTOR "+f(v.motorC)+" °C · VIN "+f(v.voltage)+" V",color=M)}}}}
 @Composable private fun Bms(s:CockpitSnapshot){Frame("JBD BMS","FF00 / FF01 / FF02 / read only"){Row(horizontalArrangement=Arrangement.spacedBy(7.dp)){Metric("PACK",f(s.bms.voltage),"V",mod=Modifier.weight(1f));Metric("SOC",f(s.bms.soc,0),"%",G,Modifier.weight(1f))};Row(horizontalArrangement=Arrangement.spacedBy(7.dp)){Metric("CURRENT",f(s.bms.current),"A",O,Modifier.weight(1f));Metric("REMAINING",f(s.bms.remainingAh),"Ah",C,Modifier.weight(1f))};PanelCard{Text("CELL VOLTAGES · "+s.bms.cells.size,color=C);s.bms.cells.forEachIndexed{i,v->Text("C"+(i+1)+"   "+f(v,3)+" V",color=T,fontSize=11.sp)}}}}
-@Composable private fun Sensors(s:CockpitSnapshot){Frame("SENSOR HUB","MPU6050 / QMC5883L / GPS"){Row(horizontalArrangement=Arrangement.spacedBy(7.dp)){Metric("ROLL",f(s.imu.roll),"°",O,Modifier.weight(1f));Metric("PITCH",f(s.imu.pitch),"°",C,Modifier.weight(1f))};Row(horizontalArrangement=Arrangement.spacedBy(7.dp)){Metric("HEADING",f(s.imu.heading,0),"°",C,Modifier.weight(1f));Metric("GPS SPEED",f(s.gps.speedKmh),"km/h",G,Modifier.weight(1f))};Row(horizontalArrangement=Arrangement.spacedBy(7.dp)){Metric("G FWD",f(s.imu.gForward),"g",G,Modifier.weight(1f));Metric("G LAT",f(s.imu.gRight),"g",O,Modifier.weight(1f))};Text(if(s.imu.zeroed)"IMU ZEROED"else"IMU NOT ZEROED",color=if(s.imu.zeroed)G else R)}}
+@Composable private fun Sensors(s:CockpitSnapshot,onCommand:(Int)->Unit={}){Frame("SENSOR HUB","MPU6050 / QMC5883L / GPS · ESP-NOW D7"){Row(horizontalArrangement=Arrangement.spacedBy(7.dp)){Metric("ROLL",f(s.imu.roll),"°",O,Modifier.weight(1f));Metric("PITCH",f(s.imu.pitch),"°",C,Modifier.weight(1f))};Row(horizontalArrangement=Arrangement.spacedBy(7.dp)){Metric("HEADING",f(s.imu.heading,0),"°",C,Modifier.weight(1f));Metric("GPS SPEED",f(s.gps.speedKmh),"km/h",G,Modifier.weight(1f))};Row(horizontalArrangement=Arrangement.spacedBy(7.dp)){Metric("G FWD",f(s.imu.gForward),"g",G,Modifier.weight(1f));Metric("G LAT",f(s.imu.gRight),"g",O,Modifier.weight(1f))};Text(if(s.imu.zeroed)"IMU ZEROED"else"IMU NOT ZEROED",color=if(s.imu.zeroed)G else R)
+ Row(horizontalArrangement=Arrangement.spacedBy(6.dp)){Button({onCommand(1)},Modifier.weight(1f)){Text("ZERO IMU")};Button({onCommand(5)},Modifier.weight(1f)){Text("ROTATE 90")}}
+ Row(horizontalArrangement=Arrangement.spacedBy(6.dp)){Button({onCommand(2)},Modifier.weight(1f)){Text("MAG CAL START")};OutlinedButton({onCommand(3)},Modifier.weight(1f)){Text("MAG CAL STOP")}}
+ Row(horizontalArrangement=Arrangement.spacedBy(6.dp)){OutlinedButton({onCommand(6)},Modifier.weight(1f)){Text("LEVEL")};OutlinedButton({onCommand(7)},Modifier.weight(1f)){Text("NOSE UP")};OutlinedButton({onCommand(8)},Modifier.weight(1f)){Text("RIGHT SIDE")}}
+ Text("Povel se předává přes displej D7 do LiDAR Bridge. Kalibraci prováděj podle pokynů na obrazovce.",color=M,fontSize=10.sp)}}
 @Composable private fun Info(t:String,a:String,b:String){Frame(t){PanelCard{Text(a,color=C,fontWeight=FontWeight.Bold);Text(b,color=T);Text("Only real received data are shown; missing values are not simulated.",color=M,fontSize=10.sp)}}}
 @Composable private fun Pair(s:CockpitSnapshot,gs:GatewayStatus,role:DeviceRole,setRole:(DeviceRole)->Unit,scan:()->Unit,connect:(SeenDevice,DeviceRole)->Unit,onGatewayConnect:(String)->Unit){Frame("PAIRING / BLE","VESC NUS · JBD · Sensor Hub · Xiaomi LDS"){
  var expanded by remember{mutableStateOf(false)}
