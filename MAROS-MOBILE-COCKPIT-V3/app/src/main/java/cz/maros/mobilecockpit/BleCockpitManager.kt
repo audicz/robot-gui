@@ -435,6 +435,7 @@ class BleCockpitManager(context: Context, private val changed:(CockpitSnapshot)-
             try{s.gatt?.disconnect();s.gatt?.close()}catch(_:Exception){}
             sessions.remove(address)
         }
+        if(role==DeviceRole.RADAR) state=state.copy(radar=RadarTelemetry())
         setLink(role,LinkStatus(false,"DISCONNECTED"))
     }
     fun disconnectAll(){DeviceRole.values().forEach{disconnect(it)}}
