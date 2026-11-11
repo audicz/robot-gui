@@ -40,26 +40,29 @@ private val G=Color(0xFF39E58C); private val O=Color(0xFFFFA33D); private val R=
 
 class MainActivity:ComponentActivity(){
  private lateinit var ble:BleCockpitManager
+ private lateinit var gateway:MobileGatewayClient
+ private val gatewayState=mutableStateOf(GatewayStatus())
  private val state=mutableStateOf(CockpitSnapshot())
  private var pending=false
  private lateinit var permissionLauncher:ActivityResultLauncher<Array<String>>
  override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState);ble=BleCockpitManager(this){state.value=it}
+  gateway=MobileGatewayClient(this,{scan,packets,dropped,bad->runOnUiThread{state.value=state.value.copy(lidar=scan,lidarPackets=packets,lidarDropped=dropped,lidarBad=bad)}},{status->runOnUiThread{gatewayState.value=status}})
   permissionLauncher=registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()){result->if(result.values.all{it}&&pending){pending=false;ble.startScan()}else if(pending){pending=false;ble.setScanMessage("Oprávnění Bluetooth / Zařízení v okolí nebylo povoleno")}}
-  setContent{val s by state;MaterialTheme(colorScheme=darkColorScheme(primary=C,background=BG,surface=P,onSurface=T)){App(s,{if(s.scanRunning)ble.stopScan()else if(ok())ble.startScan()else{pending=true;ask()}},{d,r->if(ok())ble.connect(d,r)else{pending=false;ask()}},{ble.disconnect(it)})}}}
+  setContent{val s by state;val gs by gatewayState;MaterialTheme(colorScheme=darkColorScheme(primary=C,background=BG,surface=P,onSurface=T)){App(s,gs,{if(s.scanRunning)ble.stopScan()else if(ok())ble.startScan()else{pending=true;ask()}},{d,r->if(ok())ble.connect(d,r)else{pending=false;ask()}},{ble.disconnect(it)},{gateway.connect(it)})}}}
  private fun ok():Boolean{val p=if(Build.VERSION.SDK_INT>=31)arrayOf(Manifest.permission.BLUETOOTH_SCAN,Manifest.permission.BLUETOOTH_CONNECT)else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION);return p.all{ContextCompat.checkSelfPermission(this,it)==PackageManager.PERMISSION_GRANTED}}
  private fun ask(){val p=if(Build.VERSION.SDK_INT>=31)arrayOf(Manifest.permission.BLUETOOTH_SCAN,Manifest.permission.BLUETOOTH_CONNECT)else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION);permissionLauncher.launch(p)}
  override fun onStop(){if(::ble.isInitialized)ble.stopScan();super.onStop()}
- override fun onDestroy(){if(::ble.isInitialized)ble.disconnectAll();super.onDestroy()}
+ override fun onDestroy(){if(::ble.isInitialized)ble.disconnectAll();if(::gateway.isInitialized)gateway.disconnect();super.onDestroy()}
 }
 private fun f(v:Float,d:Int=1)=if(v.isNaN()||v.isInfinite())"—" else "%.${d}f".format(v)
 private fun sp(v:VescTelemetry)=if(v.valid)v.erpm/7f*(PI*.254*60/1000).toFloat()else Float.NaN
 
-@Composable private fun App(s:CockpitSnapshot,scan:()->Unit,connect:(SeenDevice,DeviceRole)->Unit,off:(DeviceRole)->Unit){
+@Composable private fun App(s:CockpitSnapshot,gs:GatewayStatus,scan:()->Unit,connect:(SeenDevice,DeviceRole)->Unit,off:(DeviceRole)->Unit,onGatewayConnect:(String)->Unit){
  var page by remember{mutableStateOf("MAIN")};var role by remember{mutableStateOf(DeviceRole.VESC1)};var slam by remember{mutableStateOf(SlamSnapshot())};val engine=remember{SlamEngine()}
  LaunchedEffect(s.lidar?.receivedAt){s.lidar?.let{slam=withContext(Dispatchers.Default){engine.process(it)}}}
  Scaffold(containerColor=BG,bottomBar={NavigationBar(containerColor=P){listOf("MAIN","POWER","SENSORS","SLAM","MENU").forEach{NavigationBarItem(page==it,{page=it},icon={Text(it.take(1))},label={Text(it,fontSize=9.sp)})}}}){pad->
   Column(Modifier.fillMaxSize().padding(pad).background(BG)){
-   Row(Modifier.fillMaxWidth().background(P).padding(14.dp),horizontalArrangement=Arrangement.SpaceBetween){Column{Text("MAROŠ",fontSize=20.sp,fontWeight=FontWeight.Black,color=T);Text("MOBILE COCKPIT V3",fontSize=9.sp,color=M)};Text(page+" · BLE "+s.links.values.count{it.connected},color=C)}
+   Row(Modifier.fillMaxWidth().background(P).padding(14.dp),horizontalArrangement=Arrangement.SpaceBetween){Column{Text("MAROŠ",fontSize=20.sp,fontWeight=FontWeight.Black,color=T);Text("MOBILE COCKPIT V3",fontSize=9.sp,color=M)};Text(page+" · BLE "+s.links.values.count{it.connected}+" · Wi-Fi "+if(gs.online)"ONLINE" else "OFF",color=if(gs.online)G else O)}
    HorizontalDivider(color=E)
    when(page){
     "MAIN"->Main(s){page=it}
@@ -67,7 +70,7 @@ private fun sp(v:VescTelemetry)=if(v.valid)v.erpm/7f*(PI*.254*60/1000).toFloat()
     "SENSORS"->Sensors(s)
     "SLAM","ROUTE"->Slam(s,slam){x,y->slam=engine.setGoal(x,y)}
     "MENU"->Menu{page=it}
-    "PAIRING"->Pair(s,role,{role=it},scan,connect)
+    "PAIRING"->Pair(s,gs,role,{role=it},scan,connect,onGatewayConnect)
     "VESC"->Vesc(s)
     "BMS"->Bms(s)
     "LIDAR"->Lidar(s)
@@ -103,8 +106,18 @@ private fun sp(v:VescTelemetry)=if(v.valid)v.erpm/7f*(PI*.254*60/1000).toFloat()
 @Composable private fun Bms(s:CockpitSnapshot){Frame("JBD BMS","FF00 / FF01 / FF02 / read only"){Row(horizontalArrangement=Arrangement.spacedBy(7.dp)){Metric("PACK",f(s.bms.voltage),"V",mod=Modifier.weight(1f));Metric("SOC",f(s.bms.soc,0),"%",G,Modifier.weight(1f))};Row(horizontalArrangement=Arrangement.spacedBy(7.dp)){Metric("CURRENT",f(s.bms.current),"A",O,Modifier.weight(1f));Metric("REMAINING",f(s.bms.remainingAh),"Ah",C,Modifier.weight(1f))};PanelCard{Text("CELL VOLTAGES · "+s.bms.cells.size,color=C);s.bms.cells.forEachIndexed{i,v->Text("C"+(i+1)+"   "+f(v,3)+" V",color=T,fontSize=11.sp)}}}}
 @Composable private fun Sensors(s:CockpitSnapshot){Frame("SENSOR HUB","MPU6050 / QMC5883L / GPS"){Row(horizontalArrangement=Arrangement.spacedBy(7.dp)){Metric("ROLL",f(s.imu.roll),"°",O,Modifier.weight(1f));Metric("PITCH",f(s.imu.pitch),"°",C,Modifier.weight(1f))};Row(horizontalArrangement=Arrangement.spacedBy(7.dp)){Metric("HEADING",f(s.imu.heading,0),"°",C,Modifier.weight(1f));Metric("GPS SPEED",f(s.gps.speedKmh),"km/h",G,Modifier.weight(1f))};Row(horizontalArrangement=Arrangement.spacedBy(7.dp)){Metric("G FWD",f(s.imu.gForward),"g",G,Modifier.weight(1f));Metric("G LAT",f(s.imu.gRight),"g",O,Modifier.weight(1f))};Text(if(s.imu.zeroed)"IMU ZEROED"else"IMU NOT ZEROED",color=if(s.imu.zeroed)G else R)}}
 @Composable private fun Info(t:String,a:String,b:String){Frame(t){PanelCard{Text(a,color=C,fontWeight=FontWeight.Bold);Text(b,color=T);Text("Only real received data are shown; missing values are not simulated.",color=M,fontSize=10.sp)}}}
-@Composable private fun Pair(s:CockpitSnapshot,role:DeviceRole,setRole:(DeviceRole)->Unit,scan:()->Unit,connect:(SeenDevice,DeviceRole)->Unit){Frame("PAIRING / BLE","VESC NUS · JBD · Sensor Hub · Xiaomi LDS"){
+@Composable private fun Pair(s:CockpitSnapshot,gs:GatewayStatus,role:DeviceRole,setRole:(DeviceRole)->Unit,scan:()->Unit,connect:(SeenDevice,DeviceRole)->Unit,onGatewayConnect:(String)->Unit){Frame("PAIRING / BLE","VESC NUS · JBD · Sensor Hub · Xiaomi LDS"){
  var expanded by remember{mutableStateOf(false)}
+ var gatewayHost by remember{mutableStateOf(gs.host.ifBlank{"192.168.4.1"})}
+ PanelCard {
+  Text("VESC DISPLAY · ESP-NOW GATEWAY",color=C,fontWeight=FontWeight.Bold)
+  OutlinedTextField(value=gatewayHost,onValueChange={gatewayHost=it},label={Text("IP adresa displeje")},singleLine=true,modifier=Modifier.fillMaxWidth())
+  Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween,modifier=Modifier.fillMaxWidth()){
+   Text(if(gs.online)"ONLINE · "+gs.packets+" paketů" else if(gs.connecting)"PŘIPOJUJI…" else "OFFLINE",color=if(gs.online)G else O)
+   Button({onGatewayConnect(gatewayHost)}){Text("PŘIPOJIT")}
+  }
+  Text("D9/LiDAR "+gs.droppedScans+" ztracených otáček · chybné rámce "+gs.badPackets,color=M,fontSize=10.sp)
+ }
  Box{OutlinedButton({expanded=true},Modifier.fillMaxWidth()){Text("ROLE: "+role.title)};DropdownMenu(expanded,{expanded=false}){DeviceRole.values().forEach{DropdownMenuItem(text={Text(it.title)},onClick={setRole(it);expanded=false})}}}
  Button(scan,Modifier.fillMaxWidth()){Text(if(s.scanRunning)"STOP SCAN"else"SCAN BLE")}
  Text(s.scanMessage,color=if(s.scanRunning)C else O,fontSize=11.sp)
