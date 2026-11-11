@@ -55,6 +55,7 @@ class MobileGatewayClient(
     private val appContext = context.applicationContext
     @Volatile private var running = false
     @Volatile private var targetHost = ""
+    @Volatile private var targetAddress: InetAddress? = null
     @Volatile private var worker: Thread? = null
     @Volatile private var socket: DatagramSocket? = null
     private var transportSeq = 0
@@ -95,6 +96,7 @@ class MobileGatewayClient(
         var s: DatagramSocket? = null
         try {
             val address = InetAddress.getByName(host)
+            targetAddress = address
             s = DatagramSocket(null).apply {
                 reuseAddress = true
                 soTimeout = 250
@@ -128,6 +130,31 @@ class MobileGatewayClient(
 
     private fun sendHello(s: DatagramSocket, host: InetAddress) {
         val b = byteArrayOf(0x4d, 0x37, 1, TYPE_HELLO.toByte(), 0, 0, 0, 0)
+        try { s.send(DatagramPacket(b, b.size, host, DISPLAY_UDP_PORT)) } catch (_: Exception) {}
+    }
+
+    /** Safe, idempotent STOP request. The display converts it to its existing D0 zero command. */
+    fun sendStop() = sendCommand(0x11, byteArrayOf())
+
+    /** Existing LiDAR Bridge D7 calibration/rotation command; values follow firmware UI mapping. */
+    fun sendBridgeCommand(command: Int) {
+        if (command in 0..255) sendCommand(0x20, byteArrayOf(command.toByte()))
+    }
+
+    private fun sendCommand(type: Int, payload: ByteArray) {
+        val s = socket ?: return
+        val host = targetAddress ?: return
+        val b = ByteArray(8 + payload.size)
+        b[0] = 0x4d
+        b[1] = 0x37
+        b[2] = 1
+        b[3] = type.toByte()
+        b[4] = (payload.size and 0xff).toByte()
+        b[5] = ((payload.size ushr 8) and 0xff).toByte()
+        val seq = (++transportSeq) and 0xffff
+        b[6] = (seq and 0xff).toByte()
+        b[7] = ((seq ushr 8) and 0xff).toByte()
+        payload.copyInto(b, 8)
         try { s.send(DatagramPacket(b, b.size, host, DISPLAY_UDP_PORT)) } catch (_: Exception) {}
     }
 
