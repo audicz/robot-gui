@@ -35,6 +35,7 @@ class SlamEngine {
     private val odds=ByteArray(SIZE*SIZE)
     private var pose=RobotPose()
     private var previousScanAt=0L
+    private var lastGyroAt=0L
     private var avgMs=0f
     private var maxMs=0L
     private var goal:Pair<Int,Int>?=null
@@ -43,7 +44,7 @@ class SlamEngine {
     private var dropped=0L
 
     @Synchronized
-    fun process(scan:LidarScan):SlamSnapshot {
+    fun process(scan:LidarScan, imu:ImuTelemetry?=null):SlamSnapshot {
         val wallStart=System.nanoTime()
         val cpuStart=Debug.threadCpuTimeNanos()
         val ranges=scan.rangesMm
@@ -51,6 +52,11 @@ class SlamEngine {
         val dt=if(previousScanAt==0L)0L else scan.receivedAt-previousScanAt
         val scanHz=if(dt>0)1000f/dt else 0f
         previousScanAt=scan.receivedAt
+        if(imu!=null && imu.valid && imu.updatedAt>lastGyroAt){
+            val gyroDt=if(lastGyroAt==0L)0L else (imu.updatedAt-lastGyroAt).coerceIn(0L,250L)
+            if(gyroDt>0L) pose=pose.copy(headingDeg=normalize(pose.headingDeg+imu.gz*gyroDt/1000f))
+            lastGyroAt=imu.updatedAt
+        }
         val match=if(revision==0L || valid<30) Match(pose,0f) else matchScan(ranges,pose)
         pose=match.pose
         integrate(ranges,pose)
@@ -72,7 +78,7 @@ class SlamEngine {
 
     @Synchronized
     fun clear():SlamSnapshot {
-        odds.fill(0);pose=RobotPose();previousScanAt=0;avgMs=0f;maxMs=0;goal=null;path=emptyList();revision=0
+        odds.fill(0);pose=RobotPose();previousScanAt=0;lastGyroAt=0;avgMs=0f;maxMs=0;goal=null;path=emptyList();revision=0
         return snapshot()
     }
 
@@ -154,6 +160,7 @@ class SlamEngine {
         val parent=IntArray(SIZE*SIZE){-1}
         val closed=BooleanArray(SIZE*SIZE)
         fun heuristic(x:Int,y:Int)=abs(x-end.first)+abs(y-end.second).toFloat()
+        if(odds[startId].toInt() > -2 || odds[endId].toInt() > -2) return emptyList()
         gScore[startId]=0f;open.add(Node(start.first,start.second,0f,heuristic(start.first,start.second)))
         val dirs=arrayOf(intArrayOf(1,0),intArrayOf(-1,0),intArrayOf(0,1),intArrayOf(0,-1))
         var found=false
@@ -168,8 +175,10 @@ class SlamEngine {
                 val ni=y*SIZE+x
                 if(closed[ni])continue
                 val occ=odds[ni].toInt()
-                if(occ>=3)continue
-                val cost=if(occ<=-2)1f else if(occ<=0)1.7f else 3.5f
+                // Unknown and occupied cells are never treated as traversable.
+                // The map must contain repeated free-space evidence (log-odds <= -2).
+                if(occ > -2) continue
+                val cost=1f
                 val tentative=n.g+cost
                 if(tentative<gScore[ni]){
                     gScore[ni]=tentative;parent[ni]=id
