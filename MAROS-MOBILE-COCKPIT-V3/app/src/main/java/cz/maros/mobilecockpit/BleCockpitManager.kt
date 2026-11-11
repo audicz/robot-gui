@@ -51,13 +51,15 @@ data class GpsTelemetry(
     val updatedAt:Long=0L
 )
 data class LidarScan(val rangesMm:IntArray, val rpm:Int, val dutyPct:Int, val sequence:Int, val receivedAt:Long)
+data class RadarTarget(val angleDeg:Float=0f,val distanceM:Float=0f,val speedKmh:Float=0f,val snr:Int=0,val approaching:Boolean=false)
+data class RadarTelemetry(val valid:Boolean=false,val alarm:Boolean=false,val targets:List<RadarTarget> = emptyList(),val packets:Long=0,val badFrames:Long=0,val updatedAt:Long=0L)
 data class LinkStatus(val connected:Boolean=false, val label:String="OFFLINE", val address:String="")
 data class CockpitSnapshot(
     val devices:List<SeenDevice> = emptyList(),
     val links:Map<DeviceRole,LinkStatus> = emptyMap(),
     val vesc1:VescTelemetry=VescTelemetry(), val vesc2:VescTelemetry=VescTelemetry(),
     val bms:BmsTelemetry=BmsTelemetry(), val imu:ImuTelemetry=ImuTelemetry(),
-    val gps:GpsTelemetry=GpsTelemetry(), val lidar:LidarScan?=null,
+    val gps:GpsTelemetry=GpsTelemetry(), val radar:RadarTelemetry=RadarTelemetry(), val lidar:LidarScan?=null,
     val lidarPackets:Long=0, val lidarDropped:Long=0, val lidarBad:Long=0,
     val lastRawHex:String="", val scanRunning:Boolean=false, val scanMessage:String="Připraveno ke skenování"
 )
@@ -77,6 +79,9 @@ class BleCockpitManager(context: Context, private val changed:(CockpitSnapshot)-
         val JBD_SERVICE=UUID.fromString("0000ff00-0000-1000-8000-00805f9b34fb")
         val JBD_NOTIFY=UUID.fromString("0000ff01-0000-1000-8000-00805f9b34fb")
         val JBD_WRITE=UUID.fromString("0000ff02-0000-1000-8000-00805f9b34fb")
+        val HLK_SERVICE=UUID.fromString("0000ae00-0000-1000-8000-00805f9b34fb")
+        val HLK_WRITE=UUID.fromString("0000ae01-0000-1000-8000-00805f9b34fb")
+        val HLK_NOTIFY=UUID.fromString("0000ae02-0000-1000-8000-00805f9b34fb")
     }
     private val appContext=context.applicationContext
     private val adapter=(appContext.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
@@ -96,6 +101,10 @@ class BleCockpitManager(context: Context, private val changed:(CockpitSnapshot)-
         val jbdParser=JbdStreamParser()
         val ldsAssembler=LdsAssembler { scan,packets,dropped,bad ->
             state=state.copy(lidar=scan,lidarPackets=packets,lidarDropped=dropped,lidarBad=bad)
+            publish()
+        }
+        val radarParser=HlkRadarParser { radar ->
+            state=state.copy(radar=radar)
             publish()
         }
     }
@@ -285,6 +294,13 @@ class BleCockpitManager(context: Context, private val changed:(CockpitSnapshot)-
                             if(gps!=null) enableNotify(g,session,gps)
                             if(imu==null && gps==null) setLink(role,LinkStatus(false,"HUB SERVICE NOT FOUND",item.address))
                         }
+                        DeviceRole.RADAR -> {
+                            val service=g.getService(HLK_SERVICE)
+                            session.rx=service?.getCharacteristic(HLK_WRITE)
+                            session.tx=service?.getCharacteristic(HLK_NOTIFY)
+                            if(session.tx!=null && session.rx!=null) enableNotify(g,session,session.tx!!)
+                            else setLink(role,LinkStatus(false,"HLK AE00/AE01/AE02 NOT FOUND",item.address))
+                        }
                         DeviceRole.BMS -> {
                             val service=g.getService(JBD_SERVICE)
                             session.rx=service?.getCharacteristic(JBD_WRITE)
@@ -301,6 +317,7 @@ class BleCockpitManager(context: Context, private val changed:(CockpitSnapshot)-
                         when(role){
                             DeviceRole.VESC1,DeviceRole.VESC2 -> startVescPoll(session)
                             DeviceRole.BMS -> startJbdPoll(session)
+                            DeviceRole.RADAR -> startRadarStream(session)
                             else -> Unit
                         }
                     }
@@ -345,6 +362,19 @@ class BleCockpitManager(context: Context, private val changed:(CockpitSnapshot)-
         s.pollRunnable=r
         main.post(r)
     }
+    private fun startRadarStream(s:Session){
+        // Match the display firmware sequence: enter config, enable Bluetooth,
+        // then leave config. AE01 is the write characteristic, AE02 is notify.
+        write(s,byteArrayOf(0xFD.toByte(),0xFC.toByte(),0xFB.toByte(),0xFA.toByte(),0x04,0x00,0xFF.toByte(),0x00,0x01,0x00,0x04,0x03,0x02,0x01))
+        main.postDelayed({
+            if(sessions[s.address]===s) write(s,byteArrayOf(0xFD.toByte(),0xFC.toByte(),0xFB.toByte(),0xFA.toByte(),0x04,0x00,0xA4.toByte(),0x00,0x01,0x00,0x04,0x03,0x02,0x01))
+        },100L)
+        main.postDelayed({
+            if(sessions[s.address]===s) write(s,byteArrayOf(0xFD.toByte(),0xFC.toByte(),0xFB.toByte(),0xFA.toByte(),0x02,0x00,0xFE.toByte(),0x00,0x04,0x03,0x02,0x01))
+        },220L)
+        setLink(DeviceRole.RADAR,LinkStatus(true,"CONFIGURING / AE02 NOTIFY",s.address))
+    }
+
     private fun startJbdPoll(s:Session){
         var cell=false
         val r=object:Runnable{
@@ -382,6 +412,10 @@ class BleCockpitManager(context: Context, private val changed:(CockpitSnapshot)-
                 }
             }
             DeviceRole.BMS -> s.jbdParser.feed(bytes)?.let{state=state.copy(bms=it.copy(updatedAt=System.currentTimeMillis()));publish()}
+            DeviceRole.RADAR -> {
+                state=state.copy(lastRawHex=bytes.take(24).joinToString(" "){ "%02X".format(it) })
+                s.radarParser.feed(bytes)
+            }
             else -> state=state.copy(lastRawHex=bytes.joinToString(" "){ "%02X".format(it) }).also{publish()}
         }
     }
@@ -489,6 +523,63 @@ class BleCockpitManager(context: Context, private val changed:(CockpitSnapshot)-
                 return latest
             }
             return null
+        }
+    }
+
+    private class HlkRadarParser(private val changed:(RadarTelemetry)->Unit){
+        private val buffer=ArrayList<Byte>()
+        private var packets=0L
+        private var bad=0L
+        fun feed(chunk:ByteArray){
+            chunk.forEach{buffer.add(it)}
+            while(buffer.size>=6){
+                fun headAt(i:Int,ack:Boolean)=if(ack)
+                    buffer[i].toInt() and 255==0xFD && buffer[i+1].toInt() and 255==0xFC && buffer[i+2].toInt() and 255==0xFB && buffer[i+3].toInt() and 255==0xFA
+                else buffer[i].toInt() and 255==0xF4 && buffer[i+1].toInt() and 255==0xF3 && buffer[i+2].toInt() and 255==0xF2 && buffer[i+3].toInt() and 255==0xF1
+                var h=-1
+                var ack=false
+                for(i in 0..buffer.size-4){
+                    if(headAt(i,false)){h=i;ack=false;break}
+                    if(headAt(i,true)){h=i;ack=true;break}
+                }
+                if(h<0){
+                    val keep=minOf(3,buffer.size)
+                    repeat(buffer.size-keep){buffer.removeAt(0)}
+                    break
+                }
+                repeat(h){buffer.removeAt(0)}
+                if(buffer.size<6)break
+                val len=(buffer[4].toInt() and 255) or ((buffer[5].toInt() and 255) shl 8)
+                if(len>64){bad++;buffer.removeAt(0);continue}
+                val total=6+len+4
+                if(buffer.size<total)break
+                val tailOk=if(ack) byteArrayOf(4,3,2,1) else byteArrayOf(0xF8.toByte(),0xF7.toByte(),0xF6.toByte(),0xF5.toByte())
+                var good=true
+                for(i in 0..3)if(buffer[total-4+i]!=tailOk[i])good=false
+                if(!good){bad++;buffer.removeAt(0);continue}
+                if(!ack){
+                    val payload=ByteArray(len){buffer[6+it]}
+                    decode(payload)?.let{packets++;changed(it.copy(packets=packets,badFrames=bad,updatedAt=System.currentTimeMillis()))}
+                }
+                repeat(total){buffer.removeAt(0)}
+            }
+        }
+        private fun decode(p:ByteArray):RadarTelemetry?{
+            if(p.isEmpty())return null
+            val declared=p[0].toInt() and 255
+            val alarm=p.size>=2 && (p[1].toInt() and 255)==1
+            val available=if(p.size>=2)(p.size-2)/5 else 0
+            val count=minOf(declared,available,5)
+            val targets=ArrayList<RadarTarget>()
+            for(i in 0 until count){
+                val at=2+i*5
+                val angle=(p[at].toInt() and 255)-0x80
+                if(angle !in -90..90)continue
+                targets.add(RadarTarget(angle.toFloat(),(p[at+1].toInt() and 255).toFloat(),
+                    (p[at+3].toInt() and 255).toFloat(),p[at+4].toInt() and 255,
+                    (p[at+2].toInt() and 255)==1))
+            }
+            return RadarTelemetry(true,alarm,targets.sortedBy{it.distanceM})
         }
     }
 
