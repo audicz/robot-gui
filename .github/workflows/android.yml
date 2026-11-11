@@ -23,7 +23,7 @@ jobs:
           java-version: '17'
       - name: Install Android SDK 35
         run: |
-          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -mindepth 2 -maxdepth 2 -name sdkmanager | head -n 1)"
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -mindepth 3 -maxdepth 3 -name sdkmanager | head -n 1)"
           yes | "$SDKMANAGER" --licenses
           "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
       - name: Set up Gradle
