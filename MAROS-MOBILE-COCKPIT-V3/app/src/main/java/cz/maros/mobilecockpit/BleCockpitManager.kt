@@ -534,8 +534,8 @@ class BleCockpitManager(context: Context, private val changed:(CockpitSnapshot)-
             chunk.forEach{buffer.add(it)}
             while(buffer.size>=6){
                 fun headAt(i:Int,ack:Boolean)=if(ack)
-                    buffer[i].toInt() and 255==0xFD && buffer[i+1].toInt() and 255==0xFC && buffer[i+2].toInt() and 255==0xFB && buffer[i+3].toInt() and 255==0xFA
-                else buffer[i].toInt() and 255==0xF4 && buffer[i+1].toInt() and 255==0xF3 && buffer[i+2].toInt() and 255==0xF2 && buffer[i+3].toInt() and 255==0xF1
+                    (buffer[i].toInt() and 255)==0xFD && (buffer[i+1].toInt() and 255)==0xFC && (buffer[i+2].toInt() and 255)==0xFB && (buffer[i+3].toInt() and 255)==0xFA
+                else (buffer[i].toInt() and 255)==0xF4 && (buffer[i+1].toInt() and 255)==0xF3 && (buffer[i+2].toInt() and 255)==0xF2 && (buffer[i+3].toInt() and 255)==0xF1
                 var h=-1
                 var ack=false
                 for(i in 0..buffer.size-4){
