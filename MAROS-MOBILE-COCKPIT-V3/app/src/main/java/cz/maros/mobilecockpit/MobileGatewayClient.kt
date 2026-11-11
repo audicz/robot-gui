@@ -9,6 +9,36 @@ import java.net.InetSocketAddress
 import java.net.SocketTimeoutException
 import kotlin.concurrent.thread
 
+data class ScanHeadTelemetry(
+    val valid: Boolean = false,
+    val sequence: Int = 0,
+    val flags: Int = 0,
+    val elevationDeg: Float = 0f,
+    val azimuthDeg: Float = 0f,
+    val tofMm: Int = 0xffff,
+    val ultrasonicMm: Int = 0xffff,
+    val tofStatus: Int = 0,
+    val updatedAt: Long = 0L
+)
+
+data class LidarBridgeTelemetry(
+    val valid: Boolean = false,
+    val motorOn: Boolean = false,
+    val feedbackFresh: Boolean = false,
+    val rpm: Float = 0f,
+    val dutyPct: Int = 0,
+    val targetRpm: Int = 0,
+    val validPoints: Int = 0,
+    val packetsPerSecond: Int = 0,
+    val badPackets: Int = 0,
+    val checksumErrors: Int = 0,
+    val incompleteScans: Int = 0,
+    val completeScans: Int = 0,
+    val averageQuality: Int = 0,
+    val warningPercent: Int = 0,
+    val updatedAt: Long = 0L
+)
+
 data class GatewayStatus(
     val connecting: Boolean = false,
     val online: Boolean = false,
@@ -24,7 +54,16 @@ data class GatewayStatus(
     val encLeft: Long = 0,
     val encRight: Long = 0,
     val imu: ImuTelemetry = ImuTelemetry(),
-    val gps: GpsTelemetry = GpsTelemetry()
+    val gps: GpsTelemetry = GpsTelemetry(),
+    val scanHead: ScanHeadTelemetry = ScanHeadTelemetry(),
+    val lidarBridge: LidarBridgeTelemetry = LidarBridgeTelemetry(),
+    val lidarQuality: IntArray = IntArray(0),
+    val odomValid: Boolean = false,
+    val odomSequence: Int = 0,
+    val odomLeftTicks: Long = 0,
+    val odomRightTicks: Long = 0,
+    val odomGyroRadS: Float = 0f,
+    val odomDtMs: Int = 0
 )
 
 /**
@@ -68,6 +107,9 @@ class MobileGatewayClient(
     private var fragmentMask = 0
     private var stagedRanges = IntArray(360)
     private var latestRobot = GatewayStatus()
+    private var qualitySequence = -1
+    private var qualityMask = 0
+    private var stagedQuality = IntArray(360)
 
     @Synchronized fun connect(host: String) {
         disconnect()
@@ -191,10 +233,13 @@ class MobileGatewayClient(
             // Forwarded sensor/scanhead/odometry/status frames remain available
             // to the raw diagnostics counter. Typed decoders must follow exact
             // source protocol structures before they are shown as engineering data.
-            0xD2, 0xD7, 0xDB, 0xDC -> Unit
-            0xD4 -> if (frame.size != 20) bad++
+            0xD2 -> consumeScanHead(frame)
+            0xD4 -> consumeOdometry(frame)
             0xD5 -> consumeImu(frame)
             0xD6 -> consumeGps(frame)
+            0xD7 -> Unit
+            0xDB -> consumeLidarStatus(frame)
+            0xDC -> consumeLidarQuality(frame)
             else -> bad++
         }
         publishStatus()
@@ -231,6 +276,81 @@ class MobileGatewayClient(
                 onLidar(scan, packets, dropped, bad)
             } else bad++
             fragmentMask = 0
+        }
+    }
+
+    private fun consumeScanHead(p: ByteArray) {
+        if (p.size != 15 || p[1] != 'S'.code.toByte() || p[2] != 'H'.code.toByte() ||
+            (p[14].toInt() and 0xff) != xor8(p, 0, 14)) { bad++; return }
+        latestRobot = latestRobot.copy(scanHead = ScanHeadTelemetry(
+            valid = true,
+            sequence = p[3].toInt() and 0xff,
+            flags = p[4].toInt() and 0xff,
+            elevationDeg = s16(p, 5) / 10f,
+            tofMm = u16(p, 7),
+            ultrasonicMm = u16(p, 9),
+            azimuthDeg = s16(p, 11) / 10f,
+            tofStatus = p[13].toInt() and 0xff,
+            updatedAt = System.currentTimeMillis()
+        ))
+    }
+
+    private fun consumeOdometry(p: ByteArray) {
+        if (p.size != 20 || (p[0].toInt() and 0xff) != 0xD4 ||
+            crc16(p, 0, 16) != u16(p, 16)) { bad++; return }
+        val dt = u16(p, 14)
+        if (dt == 0 || dt > 1000) { bad++; return }
+        latestRobot = latestRobot.copy(
+            odomValid = true,
+            odomSequence = p[1].toInt() and 0xff,
+            odomLeftTicks = s32(p, 4).toLong(),
+            odomRightTicks = s32(p, 8).toLong(),
+            odomGyroRadS = s16(p, 12) / 1000f,
+            odomDtMs = dt
+        )
+    }
+
+    private fun consumeLidarStatus(p: ByteArray) {
+        if (p.size != 24 || (p[0].toInt() and 0xff) != 0xDB ||
+            p[1] != 'L'.code.toByte() || (p[2].toInt() and 0xff) != 1 ||
+            (p[23].toInt() and 0xff) != xor8(p, 0, 23)) { bad++; return }
+        val flags = p[3].toInt() and 0xff
+        latestRobot = latestRobot.copy(lidarBridge = LidarBridgeTelemetry(
+            valid = true,
+            motorOn = (flags and 1) != 0,
+            feedbackFresh = (flags and 2) != 0,
+            rpm = u16(p, 4) / 10f,
+            dutyPct = p[6].toInt() and 0xff,
+            targetRpm = u16(p, 7),
+            validPoints = u16(p, 9),
+            packetsPerSecond = u16(p, 11),
+            badPackets = u16(p, 13),
+            checksumErrors = u16(p, 15),
+            incompleteScans = u16(p, 17),
+            completeScans = u16(p, 19),
+            averageQuality = p[21].toInt() and 0xff,
+            warningPercent = p[22].toInt() and 0xff,
+            updatedAt = System.currentTimeMillis()
+        ))
+    }
+
+    private fun consumeLidarQuality(p: ByteArray) {
+        if (p.size != 93 || (p[0].toInt() and 0xff) != 0xDC) { bad++; return }
+        val seq = p[1].toInt() and 0xff
+        val frag = p[2].toInt() and 0xff
+        if (frag !in 0..3) { bad++; return }
+        if (qualitySequence != seq) {
+            val delta = if (qualitySequence < 0) 1 else (seq - qualitySequence) and 0xff
+            if (qualitySequence >= 0 && delta >= 128) return
+            qualitySequence = seq
+            qualityMask = 0
+            stagedQuality = IntArray(360)
+        }
+        for (i in 0 until 90) stagedQuality[frag * 90 + i] = p[3 + i].toInt() and 0xff
+        qualityMask = qualityMask or (1 shl frag)
+        if (qualityMask == 0x0f) {
+            latestRobot = latestRobot.copy(lidarQuality = stagedQuality.copyOf())
+            qualityMask = 0
         }
     }
 
@@ -309,12 +429,34 @@ class MobileGatewayClient(
         dropped = 0
         lastRx = 0
         latestRobot = GatewayStatus()
+        qualitySequence = -1
+        qualityMask = 0
+        stagedQuality = IntArray(360)
     }
 
     private fun u16(b: ByteArray, i: Int): Int =
         (b[i].toInt() and 0xff) or ((b[i + 1].toInt() and 0xff) shl 8)
 
     private fun s16(b: ByteArray, i: Int): Int = u16(b, i).toShort().toInt()
+
+    private fun s32(b: ByteArray, i: Int): Int =
+        (b[i].toInt() and 0xff) or ((b[i+1].toInt() and 0xff) shl 8) or
+        ((b[i+2].toInt() and 0xff) shl 16) or ((b[i+3].toInt() and 0xff) shl 24)
+
+    private fun crc16(b: ByteArray, offset: Int, length: Int): Int {
+        var crc = 0xffff
+        for (i in offset until offset + length) {
+            crc = crc xor ((b[i].toInt() and 0xff) shl 8)
+            repeat(8) { crc = if ((crc and 0x8000) != 0) ((crc shl 1) xor 0x1021) and 0xffff else (crc shl 1) and 0xffff }
+        }
+        return crc
+    }
+
+    private fun xor8(b: ByteArray, offset: Int, length: Int): Int {
+        var value = 0
+        for (i in offset until offset + length) value = value xor (b[i].toInt() and 0xff)
+        return value
+    }
 
     private fun s32(b: ByteArray, i: Int): Double = u32(b, i).toInt().toDouble()
 
