@@ -97,23 +97,24 @@ class MobileGatewayClient(
         try {
             val address = InetAddress.getByName(host)
             targetAddress = address
-            s = DatagramSocket(null).apply {
+            val activeSocket = DatagramSocket(null).apply {
                 reuseAddress = true
                 soTimeout = 250
                 bind(InetSocketAddress(PHONE_UDP_PORT))
             }
-            socket = s
+            s = activeSocket
+            socket = activeSocket
             val receiveBuffer = ByteArray(512)
             var lastHello = 0L
             while (running) {
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastHello >= 1000L) {
-                    sendHello(s, address)
+                    sendHello(activeSocket, address)
                     lastHello = now
                 }
                 try {
                     val packet = DatagramPacket(receiveBuffer, receiveBuffer.size)
-                    s.receive(packet)
+                    activeSocket.receive(packet)
                     val bytes = packet.data.copyOfRange(packet.offset, packet.offset + packet.length)
                     synchronized(this) { consumeEnvelope(bytes) }
                 } catch (_: SocketTimeoutException) {
