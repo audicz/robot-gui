@@ -240,4 +240,21 @@ private fun sp(v:VescTelemetry)=if(v.valid)v.erpm/7f*(PI*.254*60/1000).toFloat()
         }
     }
 }
-@Composable private fun Menu(open:(String)->Unit){val names=listOf("MAIN","DRIVE","VESC","BMS","TEMPS","ENERGY","HISTORY","SENSORS","GPS","TRACK","HORIZON","G-METER","GYRO","LINKS","PAIRING","SETTINGS","VESC CFG","PROFILES","CONTROL","BLE DATA","LIDAR","SLAM","ROUTE","RADAR","ROBOT007");Frame("ALL PANELS","25 pages · VESC Cockpit + Robot007"){LazyColumn(verticalArrangement=Arrangement.spacedBy(6.dp)){items(names.chunked(2)){row->Row(horizontalArrangement=Arrangement.spacedBy(6.dp)){row.forEach{n->PanelCard(Modifier.weight(1f).clickable{open(n)}){Text(n,color=if(n=="SLAM"||n=="LIDAR")C else T,fontWeight=FontWeight.Bold);Text("OPEN PANEL ›",fontSize=9.sp,color=M)}};if(row.size==1)Spacer(Modifier.weight(1f))}}}}}
+@Composable private fun Menu(open:(String)->Unit) {
+    val names=listOf("MAIN","DRIVE","VESC","BMS","TEMPS","ENERGY","HISTORY","SENSORS","GPS","TRACK","HORIZON","G-METER","GYRO","LINKS","PAIRING","SETTINGS","VESC CFG","PROFILES","CONTROL","BLE DATA","LIDAR","SLAM","ROUTE","RADAR","ROBOT007")
+    Frame("ALL PANELS","25 pages · VESC Cockpit + Robot007") {
+        LazyColumn(verticalArrangement=Arrangement.spacedBy(6.dp)) {
+            items(names.chunked(2)) { row ->
+                Row(horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+                    row.forEach { n ->
+                        PanelCard(Modifier.weight(1f).clickable { open(n) }) {
+                            Text(n,color=if(n=="SLAM"||n=="LIDAR")C else T,fontWeight=FontWeight.Bold)
+                            Text("OPEN PANEL ›",fontSize=9.sp,color=M)
+                        }
+                    }
+                    if(row.size==1) Spacer(Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
