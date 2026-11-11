@@ -141,7 +141,7 @@ class MobileGatewayClient(
         if (command in 0..255) sendCommand(0x20, byteArrayOf(command.toByte()))
     }
 
-    private fun sendCommand(type: Int, payload: ByteArray) {
+    @Synchronized private fun sendCommand(type: Int, payload: ByteArray) {
         val s = socket ?: return
         val host = targetAddress ?: return
         val b = ByteArray(8 + payload.size)
