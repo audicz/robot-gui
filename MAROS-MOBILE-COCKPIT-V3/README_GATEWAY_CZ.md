@@ -17,10 +17,13 @@ Envelope: M7 | version:u8=1 | type:u8 | length:u16 LE | sequence:u16 LE | payloa
 The app decodes:
 - D9: four fragments, 360 × uint16 millimetre distances.
 - D1: Robot007 chassis telemetry.
-- D5: Sensor Hub IMU payload.
-- D6: Sensor Hub GPS payload.
+- D2: scan-head elevation / ToF / ultrasonic / azimuth.
+- D4: CRC-checked wheel odometry frame.
+- D5 and D6: Sensor Hub IMU and GPS payloads.
+- DB: LiDAR motor and packet diagnostics.
+- DC: four-fragment, 360-bin signal-quality data.
 
-D2, D4, DB and DC are forwarded unchanged and counted, but still need their dedicated Android-side typed decoders. The current Robot007 UI exposes telemetry and STOP only; motor drive commands remain locked.
+HLK-LD2451 is supported directly over BLE (AE00 service, AE01 write, AE02 notify); the app performs the display firmware's Bluetooth-enable command sequence and decodes target reports. The app can request LiDAR motor ON/OFF, D7 IMU calibration commands, and Robot007 STOP. Normal Robot007 motor-drive commands remain locked.
 
 ## Setup
 
@@ -32,5 +35,7 @@ D2, D4, DB and DC are forwarded unchanged and counted, but still need their dedi
 ## Safety / validation status
 
 The UDP bridge is local-network, unauthenticated transport in this development build. Use only on a trusted Wi-Fi network. It intentionally exposes no normal motor-drive command. STOP is forwarded to the existing robot::stop() path. Before vehicle use, compile the modified ESPHome firmware with the exact ESPHome version used by the project, then test on a stationary robot with wheels raised: gateway reconnect, packet loss, STOP, Wi-Fi loss, and chassis watchdog.
+
+The Android SLAM currently performs mobile scan-to-map, gyro heading integration and conservative A* over repeatedly observed free cells with 15 cm obstacle inflation. It is not yet equivalent to the full display-side SLAM / navigation stack: wheel-odometry fusion, GPS anchoring, route-mode parity, history, profile management and VESC configuration writes still need porting and verification.
 
 This is an integration milestone, not a claim that every legacy VESC display page has already been ported to Android.
