@@ -4,6 +4,8 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -40,10 +42,12 @@ class MainActivity:ComponentActivity(){
  private lateinit var ble:BleCockpitManager
  private val state=mutableStateOf(CockpitSnapshot())
  private var pending=false
- override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState);ble=BleCockpitManager(this){state.value=it};setContent{val s by state;MaterialTheme(colorScheme=darkColorScheme(primary=C,background=BG,surface=P,onSurface=T)){App(s,{if(ok())ble.startScan()else{pending=true;ask()}},{d,r->if(ok())ble.connect(d,r)else ask()},{ble.disconnect(it)})}}}
+ private lateinit var permissionLauncher:ActivityResultLauncher<Array<String>>
+ override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState);ble=BleCockpitManager(this){state.value=it}
+  permissionLauncher=registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()){result->if(result.values.all{it}&&pending){pending=false;ble.startScan()}}
+  setContent{val s by state;MaterialTheme(colorScheme=darkColorScheme(primary=C,background=BG,surface=P,onSurface=T)){App(s,{if(ok())ble.startScan()else{pending=true;ask()}},{d,r->if(ok())ble.connect(d,r)else ask()},{ble.disconnect(it)})}}}
  private fun ok():Boolean{val p=if(Build.VERSION.SDK_INT>=31)arrayOf(Manifest.permission.BLUETOOTH_SCAN,Manifest.permission.BLUETOOTH_CONNECT)else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION);return p.all{ContextCompat.checkSelfPermission(this,it)==PackageManager.PERMISSION_GRANTED}}
- private fun ask(){val p=if(Build.VERSION.SDK_INT>=31)arrayOf(Manifest.permission.BLUETOOTH_SCAN,Manifest.permission.BLUETOOTH_CONNECT)else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION);requestPermissions(p,701)}
- override fun onRequestPermissionsResult(r:Int,p:Array<out String>,g:IntArray){super.onRequestPermissionsResult(r,p,g);if(r==701&&g.isNotEmpty()&&g.all{it==PackageManager.PERMISSION_GRANTED}&&pending){pending=false;ble.startScan()}}
+ private fun ask(){val p=if(Build.VERSION.SDK_INT>=31)arrayOf(Manifest.permission.BLUETOOTH_SCAN,Manifest.permission.BLUETOOTH_CONNECT)else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION);permissionLauncher.launch(p)}
  override fun onDestroy(){if(::ble.isInitialized)ble.disconnectAll();super.onDestroy()}
 }
 private fun f(v:Float,d:Int=1)=if(v.isNaN()||v.isInfinite())"—" else "%.${d}f".format(v)
