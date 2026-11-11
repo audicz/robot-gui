@@ -137,9 +137,54 @@ private fun sp(v:VescTelemetry)=if(v.valid)v.erpm/7f*(PI*.254*60/1000).toFloat()
 @Composable private fun Lidar(s:CockpitSnapshot,gs:GatewayStatus,onLidarMotor:(Boolean)->Unit){Frame("XIAOMI LDS","D9 · 4 ESP-NOW fragments · 360 bins · millimetres"){val scan=s.lidar;PanelCard{Text(if(scan!=null)"LIVE "+scan.rpm+" RPM"else"WAITING FOR LDS",color=if(scan!=null)G else R);Canvas(Modifier.fillMaxWidth().weight(1f)){val c=Offset(size.width/2,size.height/2);val r=min(size.width,size.height)*.43f;for(i in 1..4)drawCircle(E,r*i/4,c,style=androidx.compose.ui.graphics.drawscope.Stroke(1f));scan?.rangesMm?.forEachIndexed{a,mm->if(mm in 80..12000){val q=a*PI.toFloat()/180f;val quality=if(gs.lidarQuality.size==360)gs.lidarQuality[a] else 0;val pointColor=if((quality and 0x80)!=0)O else C;drawCircle(pointColor,if(quality==0)1.5f else 2f,Offset(c.x+sin(q)*mm/12000f*r,c.y-cos(q)*mm/12000f*r))}};drawCircle(O,6f,c)}};Text("RX "+s.lidarPackets+" · dropped "+s.lidarDropped+" · bad "+s.lidarBad,color=M)
  Row(horizontalArrangement=Arrangement.spacedBy(7.dp)){Button({onLidarMotor(true)},enabled=gs.online,modifier=Modifier.weight(1f)){Text("LIDAR MOTOR ON")};OutlinedButton({onLidarMotor(false)},enabled=gs.online,modifier=Modifier.weight(1f)){Text("MOTOR OFF")}}
  val st=gs.lidarBridge;if(st.valid){Text("MOTOR "+(if(st.motorOn)"ON" else "OFF")+" · "+f(st.rpm)+" RPM · DUTY "+st.dutyPct+"%",color=if(st.motorOn)G else O);Text("POINTS "+st.validPoints+" · RX "+st.packetsPerSecond+"/s · BAD "+st.badPackets+" · CRC "+st.checksumErrors,color=M);Text("SCANS "+st.completeScans+" complete / "+st.incompleteScans+" incomplete · AVG Q "+st.averageQuality+" · WARN "+st.warningPercent+"%",color=M)}else Text("DB BRIDGE STATUS: WAITING",color=O)}}
-@Composable private fun Slam(s:CockpitSnapshot,slam:SlamSnapshot,goal:(Int,Int)->Unit){Frame("MOBILE SLAM","5 cm occupancy map · scan-to-map · A*"){
- PanelCard{Text("MAP · REV "+slam.mapRevision,color=C);Canvas(Modifier.fillMaxWidth().weight(1f).pointerInput(slam.mapRevision){detectTapGestures{p->val side=min(size.width,size.height);val ox=(size.width-side)/2;val oy=(size.height-side)/2;goal(((p.x-ox)/side*256).toInt().coerceIn(0,255),((p.y-oy)/side*256).toInt().coerceIn(0,255))}}){val side=min(size.width,size.height);val ox=(size.width-side)/2;val oy=(size.height-side)/2;val cell=side/256;drawRect(Color(0xFF07111A),Offset(ox,oy),Size(side,side));for(y in 0 until 256 step 2)for(x in 0 until 256 step 2){val v=slam.grid[y*256+x];if(v>=2)drawRect(Color.LightGray,Offset(ox+x*cell,oy+y*cell),Size(cell*2,cell*2))};if(slam.path.size>1){val p=Path();slam.path.forEachIndexed{i,q->val o=Offset(ox+(q.first+.5f)*cell,oy+(q.second+.5f)*cell);if(i==0)p.moveTo(o.x,o.y)else p.lineTo(o.x,o.y)};drawPath(p,C,style=androidx.compose.ui.graphics.drawscope.Stroke(3f))};val rx=ox+(128+slam.pose.x/.05f)*cell;val ry=oy+(128-slam.pose.y/.05f)*cell;drawCircle(O,7f,Offset(rx,ry))};Text("Tap map to set route goal · path "+slam.path.size+" cells",color=M,fontSize=10.sp)}
- Row(horizontalArrangement=Arrangement.spacedBy(6.dp)){Metric("WALL",slam.metrics.wallMs.toString(),"ms",C,Modifier.weight(1f));Metric("CPU",slam.metrics.cpuMs.toString(),"ms",O,Modifier.weight(1f));Metric("MATCH",f(slam.metrics.confidence*100,0),"%",G,Modifier.weight(1f))}
- Row(horizontalArrangement=Arrangement.spacedBy(6.dp)){Metric("AVG",f(slam.metrics.averageMs),"ms",C,Modifier.weight(1f));Metric("MAX",slam.metrics.maxMs.toString(),"ms",O,Modifier.weight(1f));Metric("SCAN",f(slam.metrics.scanHz),"Hz",G,Modifier.weight(1f))}
-}}
+@Composable private fun Slam(s:CockpitSnapshot, slam:SlamSnapshot, goal:(Int,Int)->Unit) {
+    Frame("MOBILE SLAM", "5 cm occupancy map · scan-to-map · A*") {
+        PanelCard {
+            Text("MAP · REV "+slam.mapRevision, color=C)
+            Canvas(
+                Modifier.fillMaxWidth().weight(1f).pointerInput(slam.mapRevision) {
+                    detectTapGestures { p ->
+                        val side=min(size.width,size.height)
+                        val ox=(size.width-side)/2
+                        val oy=(size.height-side)/2
+                        goal(((p.x-ox)/side*256).toInt().coerceIn(0,255),
+                             ((p.y-oy)/side*256).toInt().coerceIn(0,255))
+                    }
+                }
+            ) {
+                val side=min(size.width,size.height)
+                val ox=(size.width-side)/2
+                val oy=(size.height-side)/2
+                val cell=side/256
+                drawRect(Color(0xFF07111A),Offset(ox,oy),Size(side,side))
+                for(y in 0 until 256 step 2) for(x in 0 until 256 step 2) {
+                    val v=slam.grid[y*256+x]
+                    if(v>=2) drawRect(Color.LightGray,Offset(ox+x*cell,oy+y*cell),Size(cell*2,cell*2))
+                }
+                if(slam.path.size>1) {
+                    val path=Path()
+                    slam.path.forEachIndexed { i,q ->
+                        val point=Offset(ox+(q.first+.5f)*cell,oy+(q.second+.5f)*cell)
+                        if(i==0) path.moveTo(point.x,point.y) else path.lineTo(point.x,point.y)
+                    }
+                    drawPath(path,C,style=androidx.compose.ui.graphics.drawscope.Stroke(3f))
+                }
+                val rx=ox+(128+slam.pose.x/.05f)*cell
+                val ry=oy+(128-slam.pose.y/.05f)*cell
+                drawCircle(O,7f,Offset(rx,ry))
+            }
+            Text("Tap map to set route goal · path "+slam.path.size+" cells",color=M,fontSize=10.sp)
+        }
+        Row(horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+            Metric("WALL",slam.metrics.wallMs.toString(),"ms",C,Modifier.weight(1f))
+            Metric("CPU",slam.metrics.cpuMs.toString(),"ms",O,Modifier.weight(1f))
+            Metric("MATCH",f(slam.metrics.confidence*100,0),"%",G,Modifier.weight(1f))
+        }
+        Row(horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+            Metric("AVG",f(slam.metrics.averageMs),"ms",C,Modifier.weight(1f))
+            Metric("MAX",slam.metrics.maxMs.toString(),"ms",O,Modifier.weight(1f))
+            Metric("SCAN",f(slam.metrics.scanHz),"Hz",G,Modifier.weight(1f))
+        }
+    }
+}
 @Composable private fun Menu(open:(String)->Unit){val names=listOf("MAIN","DRIVE","VESC","BMS","TEMPS","ENERGY","HISTORY","SENSORS","GPS","TRACK","HORIZON","G-METER","GYRO","LINKS","PAIRING","SETTINGS","VESC CFG","PROFILES","CONTROL","BLE DATA","LIDAR","SLAM","ROUTE","RADAR","ROBOT007");Frame("ALL PANELS","25 pages · VESC Cockpit + Robot007"){LazyColumn(verticalArrangement=Arrangement.spacedBy(6.dp)){items(names.chunked(2)){row->Row(horizontalArrangement=Arrangement.spacedBy(6.dp)){row.forEach{n->PanelCard(Modifier.weight(1f).clickable{open(n)}){Text(n,color=if(n=="SLAM"||n=="LIDAR")C else T,fontWeight=FontWeight.Bold);Text("OPEN PANEL ›",fontSize=9.sp,color=M)}};if(row.size==1)Spacer(Modifier.weight(1f))}}}}}
