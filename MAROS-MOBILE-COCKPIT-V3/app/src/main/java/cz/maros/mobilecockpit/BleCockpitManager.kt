@@ -373,7 +373,10 @@ class BleCockpitManager(context: Context, private val changed:(CockpitSnapshot)-
             if(sessions[s.address]===s) write(s,byteArrayOf(0xFD.toByte(),0xFC.toByte(),0xFB.toByte(),0xFA.toByte(),0x04,0x00,0xA4.toByte(),0x00,0x01,0x00,0x04,0x03,0x02,0x01))
         },100L)
         main.postDelayed({
-            if(sessions[s.address]===s) write(s,byteArrayOf(0xFD.toByte(),0xFC.toByte(),0xFB.toByte(),0xFA.toByte(),0x02,0x00,0xFE.toByte(),0x00,0x04,0x03,0x02,0x01))
+            if(sessions[s.address]===s) {
+                write(s,byteArrayOf(0xFD.toByte(),0xFC.toByte(),0xFB.toByte(),0xFA.toByte(),0x02,0x00,0xFE.toByte(),0x00,0x04,0x03,0x02,0x01))
+                setLink(DeviceRole.RADAR,LinkStatus(true,"ONLINE / HLK STREAM",s.address))
+            }
         },220L)
         setLink(DeviceRole.RADAR,LinkStatus(true,"CONFIGURING / AE02 NOTIFY",s.address))
     }
