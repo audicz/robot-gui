@@ -12,6 +12,8 @@ import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
+import android.location.LocationManager
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import java.util.UUID
@@ -77,8 +79,8 @@ class BleCockpitManager(context: Context, private val changed:(CockpitSnapshot)-
         val JBD_WRITE=UUID.fromString("0000ff02-0000-1000-8000-00805f9b34fb")
     }
     private val appContext=context.applicationContext
-    private val adapter=(appContext.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
-    private val scanner get()=adapter.bluetoothLeScanner
+    private val adapter=(appContext.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
+    private val scanner get()=adapter?.bluetoothLeScanner
     private val main=Handler(Looper.getMainLooper())
     private val seen=linkedMapOf<String,SeenDevice>()
     private val sessions=linkedMapOf<String,Session>()
@@ -132,38 +134,87 @@ class BleCockpitManager(context: Context, private val changed:(CockpitSnapshot)-
     fun startScan(){
         try{
             scanStop?.let{main.removeCallbacks(it)}
+            scanStop=null
             try{scanner?.stopScan(scanCallback)}catch(_:Exception){}
-            if(!adapter.isEnabled){
+            val bt=adapter
+            if(bt==null){
+                state=state.copy(scanRunning=false,scanMessage="Telefon nemá dostupný Bluetooth adaptér")
+                publish();return
+            }
+            if(!bt.isEnabled){
                 state=state.copy(scanRunning=false,scanMessage="Bluetooth je vypnutý – zapni ho v nastavení telefonu")
                 publish();return
             }
+            if(Build.VERSION.SDK_INT>=31){
+                if(appContext.checkSelfPermission(android.Manifest.permission.BLUETOOTH_SCAN)!=android.content.pm.PackageManager.PERMISSION_GRANTED){
+                    state=state.copy(scanRunning=false,scanMessage="Chybí oprávnění Zařízení v okolí (BLUETOOTH_SCAN)")
+                    publish();return
+                }
+            }else{
+                if(appContext.checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)!=android.content.pm.PackageManager.PERMISSION_GRANTED){
+                    state=state.copy(scanRunning=false,scanMessage="Chybí oprávnění Poloha pro BLE skenování")
+                    publish();return
+                }
+                val lm=appContext.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+                val locationEnabled=try{
+                    if(Build.VERSION.SDK_INT>=28) lm?.isLocationEnabled==true
+                    else lm?.isProviderEnabled(LocationManager.GPS_PROVIDER)==true ||
+                        lm?.isProviderEnabled(LocationManager.NETWORK_PROVIDER)==true
+                }catch(_:Exception){false}
+                if(!locationEnabled){
+                    state=state.copy(scanRunning=false,scanMessage="Zapni v telefonu služby určování polohy – Android je vyžaduje pro BLE skenování")
+                    publish();return
+                }
+            }
             val bleScanner=scanner
             if(bleScanner==null){
-                state=state.copy(scanRunning=false,scanMessage="BLE skener není dostupný")
+                state=state.copy(scanRunning=false,scanMessage="BLE skener není dostupný – vypni a zapni Bluetooth")
                 publish();return
             }
             seen.clear()
-            state=state.copy(devices=emptyList(),scanRunning=true,scanMessage="Vyhledávám BLE zařízení…")
+            state=state.copy(devices=emptyList(),scanRunning=true,scanMessage="Spouštím BLE skenování…")
             publish()
             val settings=ScanSettings.Builder()
                 .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+                .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
+                .setMatchMode(ScanSettings.MATCH_MODE_AGGRESSIVE)
+                .setNumOfMatches(ScanSettings.MATCH_NUM_MAX_ADVERTISEMENT)
                 .setReportDelay(0L)
                 .build()
+            // No service/name filter: LDS bridges, VESC NUS and JBD devices advertise differently.
             bleScanner.startScan(null,settings,scanCallback)
+            state=state.copy(scanMessage="Vyhledávám BLE zařízení…")
+            publish()
             scanStop=Runnable{
                 try{bleScanner.stopScan(scanCallback)}catch(_:Exception){}
                 state=state.copy(scanRunning=false,devices=seen.values.sortedByDescending{it.rssi},
-                    scanMessage=if(seen.isEmpty())"Nic nenalezeno – ověř, že zařízení vysílá BLE reklamu a je v dosahu" else "Dokončeno: ${seen.size} zařízení")
+                    scanMessage=if(seen.isEmpty())"Nic nenalezeno. Ověř napájení zařízení, BLE reklamu a vzdálenost." else "Dokončeno: "+seen.size+" zařízení")
                 publish()
+                scanStop=null
             }.also{main.postDelayed(it,15000L)}
         }catch(e:SecurityException){
-            state=state.copy(scanRunning=false,scanMessage="Chybí oprávnění Zařízení v okolí / Bluetooth")
+            scanStop?.let{main.removeCallbacks(it)};scanStop=null
+            state=state.copy(scanRunning=false,scanMessage="Android zablokoval BLE skenování – zkontroluj oprávnění Zařízení v okolí")
             publish()
         }catch(e:Exception){
-            state=state.copy(scanRunning=false,scanMessage="Chyba BLE: ${e.javaClass.simpleName}: ${e.message ?: "bez detailu"}")
+            scanStop?.let{main.removeCallbacks(it)};scanStop=null
+            state=state.copy(scanRunning=false,scanMessage="Chyba BLE: "+e.javaClass.simpleName+": "+(e.message ?: "bez detailu"))
             publish()
         }
     }
+
+    @SuppressLint("MissingPermission")
+    fun stopScan(){
+        scanStop?.let{main.removeCallbacks(it)}
+        scanStop=null
+        try{scanner?.stopScan(scanCallback)}catch(_:Exception){}
+        if(state.scanRunning){
+            state=state.copy(scanRunning=false,devices=seen.values.sortedByDescending{it.rssi},
+                scanMessage=if(seen.isEmpty())"Skenování zastaveno – zatím bez zařízení" else "Skenování zastaveno: "+seen.size+" zařízení")
+            publish()
+        }
+    }
+
     fun setScanMessage(message:String){
         state=state.copy(scanRunning=false,scanMessage=message)
         publish()
