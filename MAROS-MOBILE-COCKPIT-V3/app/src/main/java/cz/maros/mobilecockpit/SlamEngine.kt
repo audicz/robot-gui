@@ -161,6 +161,17 @@ class SlamEngine {
         val closed=BooleanArray(SIZE*SIZE)
         fun heuristic(x:Int,y:Int)=abs(x-end.first)+abs(y-end.second).toFloat()
         if(odds[endId].toInt() > -2) return emptyList()
+        // Inflate occupied cells by 15 cm (3 cells at 5 cm resolution).
+        val blocked=BooleanArray(SIZE*SIZE)
+        for(y in 0 until SIZE) for(x in 0 until SIZE) {
+            if(odds[y*SIZE+x].toInt() < 3) continue
+            for(dy in -3..3) for(dx in -3..3) {
+                if(dx*dx+dy*dy>9) continue
+                val bx=x+dx;val by=y+dy
+                if(bx in 0 until SIZE && by in 0 until SIZE) blocked[by*SIZE+bx]=true
+            }
+        }
+        if(blocked[endId]) return emptyList()
         gScore[startId]=0f;open.add(Node(start.first,start.second,0f,heuristic(start.first,start.second)))
         val dirs=arrayOf(intArrayOf(1,0),intArrayOf(-1,0),intArrayOf(0,1),intArrayOf(0,-1))
         var found=false
@@ -177,7 +188,7 @@ class SlamEngine {
                 val occ=odds[ni].toInt()
                 // Unknown and occupied cells are never treated as traversable.
                 // The map must contain repeated free-space evidence (log-odds <= -2).
-                if(occ > -2) continue
+                if(occ > -2 || blocked[ni]) continue
                 val cost=1f
                 val tentative=n.g+cost
                 if(tentative<gScore[ni]){
