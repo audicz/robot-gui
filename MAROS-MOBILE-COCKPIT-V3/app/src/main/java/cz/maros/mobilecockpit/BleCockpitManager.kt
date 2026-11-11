@@ -22,7 +22,7 @@ import kotlin.math.min
 
 enum class DeviceRole(val title: String) {
     VESC1("VESC 1"), VESC2("VESC 2"), BMS("JBD BMS"), HUB("Sensor Hub"),
-    LIDAR("Xiaomi LDS"), RADAR("HLK radar"), ROBOT("Robot007")
+    LIDAR("Xiaomi LDS · legacy BLE"), RADAR("HLK radar"), ROBOT("Robot007")
 }
 data class SeenDevice(val name: String, val address: String, val rssi: Int, val device: BluetoothDevice)
 data class VescTelemetry(
