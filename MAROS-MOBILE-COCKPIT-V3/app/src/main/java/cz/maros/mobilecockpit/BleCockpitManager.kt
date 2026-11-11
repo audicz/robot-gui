@@ -53,13 +53,14 @@ data class GpsTelemetry(
 data class LidarScan(val rangesMm:IntArray, val rpm:Int, val dutyPct:Int, val sequence:Int, val receivedAt:Long)
 data class RadarTarget(val angleDeg:Float=0f,val distanceM:Float=0f,val speedKmh:Float=0f,val snr:Int=0,val approaching:Boolean=false)
 data class RadarTelemetry(val valid:Boolean=false,val alarm:Boolean=false,val targets:List<RadarTarget> = emptyList(),val packets:Long=0,val badFrames:Long=0,val updatedAt:Long=0L)
+data class HistoryPoint(val at:Long,val speedKmh:Float,val powerKw:Float,val batteryA:Float,val fetC:Float,val motorC:Float)
 data class LinkStatus(val connected:Boolean=false, val label:String="OFFLINE", val address:String="")
 data class CockpitSnapshot(
     val devices:List<SeenDevice> = emptyList(),
     val links:Map<DeviceRole,LinkStatus> = emptyMap(),
     val vesc1:VescTelemetry=VescTelemetry(), val vesc2:VescTelemetry=VescTelemetry(),
     val bms:BmsTelemetry=BmsTelemetry(), val imu:ImuTelemetry=ImuTelemetry(),
-    val gps:GpsTelemetry=GpsTelemetry(), val radar:RadarTelemetry=RadarTelemetry(), val lidar:LidarScan?=null,
+    val gps:GpsTelemetry=GpsTelemetry(), val radar:RadarTelemetry=RadarTelemetry(), val history:List<HistoryPoint> = emptyList(), val lidar:LidarScan?=null,
     val lidarPackets:Long=0, val lidarDropped:Long=0, val lidarBad:Long=0,
     val lastRawHex:String="", val scanRunning:Boolean=false, val scanMessage:String="Připraveno ke skenování"
 )
@@ -91,6 +92,8 @@ class BleCockpitManager(context: Context, private val changed:(CockpitSnapshot)-
     private val sessions=linkedMapOf<String,Session>()
     private var state=CockpitSnapshot()
     private var scanStop:Runnable?=null
+    private var lastHistoryAt=0L
+    private val historyBuffer=ArrayList<HistoryPoint>()
 
     private inner class Session(val role:DeviceRole,val address:String) {
         var gatt:BluetoothGatt?=null
@@ -398,6 +401,7 @@ class BleCockpitManager(context: Context, private val changed:(CockpitSnapshot)-
                 if(data!=null){
                     val t=data.copy(updatedAt=System.currentTimeMillis())
                     state=if(s.role==DeviceRole.VESC1)state.copy(vesc1=t)else state.copy(vesc2=t)
+                    recordHistory()
                     publish()
                 }
             }
@@ -434,6 +438,17 @@ class BleCockpitManager(context: Context, private val changed:(CockpitSnapshot)-
     private fun setLink(role:DeviceRole,status:LinkStatus){
         state=state.copy(links=state.links.toMutableMap().apply{put(role,status)})
         publish()
+    }
+    private fun recordHistory(){
+        val now=System.currentTimeMillis()
+        if(now-lastHistoryAt<2000L)return
+        val v=if(state.vesc1.valid)state.vesc1 else state.vesc2
+        if(!v.valid)return
+        lastHistoryAt=now
+        val speed=if(v.erpm.isFinite())v.erpm/7f*(Math.PI*.254*60/1000).toFloat() else Float.NaN
+        historyBuffer.add(HistoryPoint(now,speed,v.voltage*v.batteryA/1000f,v.batteryA,v.fetC,v.motorC))
+        while(historyBuffer.size>346)historyBuffer.removeAt(0)
+        state=state.copy(history=historyBuffer.toList())
     }
     private fun publish(){main.post{changed(state)}}
     fun current()=state
