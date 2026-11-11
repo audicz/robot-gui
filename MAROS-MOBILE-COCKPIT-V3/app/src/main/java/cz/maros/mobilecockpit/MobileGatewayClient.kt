@@ -184,6 +184,10 @@ class MobileGatewayClient(
         if (command in 0..255) sendCommand(0x20, byteArrayOf(command.toByte()))
     }
 
+    fun setLidarMotor(enabled: Boolean) {
+        sendCommand(0x21, byteArrayOf(if (enabled) 1 else 0))
+    }
+
     @Synchronized private fun sendCommand(type: Int, payload: ByteArray) {
         val s = socket ?: return
         val host = targetAddress ?: return
