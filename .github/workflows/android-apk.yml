@@ -49,3 +49,5 @@ jobs:
           path: MAROS-Mobile-V3-debug.apk
           if-no-files-found: error
           retention-days: 30
+
+# V3 build pipeline
